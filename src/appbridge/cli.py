@@ -4,7 +4,7 @@
   appbridge info APP [--json]
   appbridge launch [--backend B] [--dry-run] APP [FILE ...]
   appbridge stop APP
-  appbridge install [--backend B] [--dry-run] [-y] APP
+  appbridge install [--backend B] [--from FILE] [--dry-run] [-y] APP
   appbridge run APP PROGRAM [ARG ...]          run any .exe (an installer, say) in the app's prefix
   appbridge prefer APP BACKEND|auto
   appbridge integrate [APP ...] [--remove] [--default-handlers] [--force] [--dry-run]
@@ -70,6 +70,7 @@ def cmd_list(b: Bridge, a) -> int:
         print(json.dumps([_state_json(r) for r in rows], indent=2))
         return 0
     mark = {READY: "●", NOT_INSTALLED: "◐", NO_BACKEND: "○"}
+    flag = lambda r: " (experimental)" if r.app.note.startswith("Experimental") else ""  # noqa: E731
     for suite in SUITES:
         group = [r for r in rows if r.app.suite == suite]
         if not group:
@@ -77,7 +78,7 @@ def cmd_list(b: Bridge, a) -> int:
         print(f"\n{suite}")
         for r in group:
             via = r.backend.label if r.backend else "-"
-            print(f"  {mark[r.status]} {r.app.id:<17} {r.app.name:<30} {r.status:<14} {via}")
+            print(f"  {mark[r.status]} {r.app.id:<17} {r.app.name:<30} {r.status:<14} {via}{flag(r)}")
     print("\n● ready   ◐ set up, app not installed (appbridge install APP)   ○ nothing set up (appbridge info APP)")
     return 0
 
@@ -92,6 +93,8 @@ def cmd_info(b: Bridge, a) -> int:
         return 0
     print(f"{app.name} ({app.id}) - {app.suite}")
     print(f"status: {res.status} - {res.summary}")
+    if app.note:
+        print(f"note: {app.note}")
     pref = b.config.prefer.get(app.id)
     if pref:
         print(f"preferred backend: {pref}")
@@ -104,8 +107,10 @@ def cmd_info(b: Bridge, a) -> int:
             print(f"      {s.check.detail}")
     if res.status != READY:
         hint = b.install_hint(res)
-        cmds = b.install_commands(res)
-        if cmds:
+        kind, what = b.source_needed(res)
+        if what:
+            print(f"next: download {what}, then: appbridge install {app.id} --from PATH")
+        elif b.can_install(res):
             print(f"next: appbridge install {app.id}")
         elif hint:
             print(f"next: {hint}")
@@ -183,7 +188,15 @@ def cmd_install(b: Bridge, a) -> int:
         for s in res.routes:
             print(f"  - {s.backend.label}: {s.check.detail or b.install_hint(Resolved(app, NO_BACKEND, s, res.routes))}")
         return EXIT_NOT_READY
-    cmds = b.install_commands(res)
+    kind, what = b.source_needed(res)
+    if what and not a.source:
+        print(f"{app.name} installs from {what}.\nDownload it, then run: appbridge install {app.id} --from PATH")
+        return EXIT_NOT_READY
+    if a.source and not os.path.exists(os.path.expanduser(a.source)):
+        return _err(f"{a.source}: no such file or folder")
+    if a.source and kind == "dir" and not os.path.isdir(os.path.expanduser(a.source)):
+        return _err(f"{app.name} needs a folder (not a file): {what}")
+    cmds = b.install_commands(res, a.source)
     if not cmds:
         print(f"{app.name}: appbridge can't install this one for you. {b.install_hint(res)}")
         return EXIT_NOT_READY if res.status != READY else 0
@@ -368,6 +381,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("install", help="install or set up an app through its backend")
     p.add_argument("app")
     p.add_argument("--backend")
+    p.add_argument("--from", dest="source", metavar="PATH",
+                   help="the vendor's installer file or folder, for apps that need one (AutoCAD, SOLIDWORKS, ...)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask before running")
     p.set_defaults(fn=cmd_install)

@@ -19,6 +19,7 @@ class Route:
     target: str           # backend-specific: app key, Flatpak ID, binary, unit, or "a|b|c" candidates
     exe: str = ""         # Windows executable, relative to the backend's install root (for checks and icons)
     remote: str = ""      # Flatpak remote that carries the app ("" = not on a remote, install it yourself)
+    args: tuple[str, ...] = ()   # extra arguments before any files (native tools)
 
 
 @dataclass
@@ -32,7 +33,8 @@ class App:
     mime: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
     routes: tuple[Route, ...] = ()
-    kind: str = "app"     # "app", or "service" for sync daemons that start and stop
+    kind: str = "app"     # "app"; "service" for sync daemons that start and stop; "tool" for one-shot helpers
+    note: str = ""        # caveat shown in `info` and the window (experimental, setup guide, ...)
     custom: dict = field(default_factory=dict)   # custom Wine apps: exe, prefix, runner, env, installer
 
     @property
@@ -45,7 +47,7 @@ class App:
         return exe.replace("\\", "/").rsplit("/", 1)[-1].lower() if exe else ""
 
 
-SUITES = ("Microsoft 365", "Adobe", "Communication & sync", "Windows VM", "Custom")
+SUITES = ("Microsoft 365", "Adobe", "CAD & 3D", "Design & art", "Audio", "Communication & sync", "Windows VM", "Custom")
 
 _DOCX = ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
          "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
@@ -148,6 +150,48 @@ BUILTIN: tuple[App, ...] = (
            "applications-graphics", ("Graphics", "Photography"), (), "lightroom-cc"),
     _adobe("acrobat", "Adobe Acrobat", "Acrobat DC", "Acrobat/Acrobat.exe", "PDF Editor", "x-office-document",
            ("Office", "Viewer"), ("application/pdf",), "acrobat-dc|acrobat-x-pro", kw=("pdf",)),
+    # ---------------------------------------------------------------- CAD & 3D: GPU-heavy, so Wine rather than a VM
+    App("autocad", "AutoCAD", "CAD & 3D", "2D and 3D CAD", "applications-engineering", ("Graphics", "Engineering"),
+        ("image/vnd.dwg", "image/vnd.dxf", "application/acad", "application/x-autocad"), ("dwg", "dxf", "autodesk", "cad"),
+        (Route("autocad", "autocad", "AutoCAD {year}/acad.exe"),),
+        note="Its project tests AutoCAD 2027 licensed after Autodesk sign-in, with the full ribbon and command "
+             "line; drawing, plotting and 3D haven't been exercised yet."),
+    App("inventor", "Autodesk Inventor", "CAD & 3D", "3D Mechanical CAD", "applications-engineering",
+        ("Graphics", "Engineering"), (), ("ipt", "iam", "autodesk", "cad"),
+        (Route("inventor", "inventor", "Inventor {year}/Bin/Inventor.exe"),),
+        note="Inventor 2026 and 2027 Professional, installed from Autodesk's own download."),
+    App("fusion", "Autodesk Fusion", "CAD & 3D", "3D CAD/CAM", "applications-engineering", ("Graphics", "Engineering"),
+        (), ("fusion 360", "autodesk", "cad", "cam"), (Route("fusion", "fusion", "Fusion360.exe"),),
+        note="The installer project has moved from GitHub to Codeberg; the fork pinned here is the archived "
+             "GitHub copy, and its installer downloads its files from Codeberg."),
+    App("solidworks", "SOLIDWORKS", "CAD & 3D", "3D CAD", "applications-engineering", ("Graphics", "Engineering"),
+        (), ("sldprt", "sldasm", "dassault", "cad"),
+        (Route("solidworks", "solidworks", "SLDWORKS.exe"),),
+        note="Experimental: one known working setup (startup and a new part). Installing builds a patched Wine "
+             "first, which takes hours. Keep Windows for work you depend on."),
+    # ---------------------------------------------------------------- Design & art
+    App("affinity", "Affinity", "Design & art", "Photo, Vector and Layout", "applications-graphics",
+        ("Graphics", "2DGraphics", "RasterGraphics", "VectorGraphics"), (), ("photo", "designer", "publisher", "canva"),
+        (Route("affinity", "affinity", "Affinity.exe"), Route("winapps", "affinity|afphoto|afdesign|afpub"))),
+    App("clipstudio", "Clip Studio Paint", "Design & art", "Illustration and Comics", "applications-graphics",
+        ("Graphics", "2DGraphics", "RasterGraphics"), (), ("csp", "manga", "comics", "drawing"),
+        (Route("csp", "csp", "CLIPStudioPaint.exe"),
+         Route("bottles", "Program Files/CELSYS/CLIP STUDIO 1.5/CLIP STUDIO PAINT/CLIPStudioPaint.exe"))),
+    # ---------------------------------------------------------------- Audio: latency-sensitive, so Wine rather than a VM
+    App("ableton", "Ableton Live", "Audio", "Music Production", "applications-multimedia",
+        ("AudioVideo", "Audio", "Midi"), (), ("daw", "als", "push", "max for live"),
+        (Route("ableton", "ableton-live"),
+         Route("bottles", "ProgramData/Ableton/Live */Program/Ableton Live *.exe"))),
+    App("flstudio", "FL Studio", "Audio", "Music Production", "applications-multimedia", ("AudioVideo", "Audio", "Midi"),
+        (), ("daw", "flp", "image-line"),
+        (Route("bottles", "Program Files/Image-Line/FL Studio*/FL64.exe"),),
+        note="Set it up in Bottles following the fl-studio-linux-setup guide (third_party/fl-studio-linux-setup): "
+             "which runner to use, fonts, and the FL Studio 26.1.4 certificate problem."),
+    App("yabridge", "Windows Audio Plugins", "Audio", "yabridge plugin bridge", "audio-x-generic",
+        ("AudioVideo", "Audio"), (), ("vst", "vst3", "clap", "plugins", "bitwig", "reaper", "ardour"),
+        (Route("native", "yabridgectl", args=("sync",)),), kind="tool",
+        note="Lets native Linux DAWs (Bitwig, REAPER, Ardour) load Windows VST2, VST3 and CLAP plugins. Add your "
+             "plugin folders once with `yabridgectl add DIR`; running this re-syncs them after you install plugins."),
     # ---------------------------------------------------------------- Windows-only, via a Windows VM
     _vm("visio", "Microsoft Visio", "Diagram Editor", "x-office-drawing", ("Office", "Graphics"),
         ("application/vnd.visio", "application/vnd.ms-visio.drawing"), "visio|visio-x86", kw=("vsdx", "diagram")),

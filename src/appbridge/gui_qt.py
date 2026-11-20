@@ -266,6 +266,11 @@ class Details(QtWidgets.QWidget):
         self.status.setTextFormat(Qt.TextFormat.RichText)
         self.status.setOpenExternalLinks(True)
         lay.addWidget(self.status)
+        self.note = QtWidgets.QLabel()
+        self.note.setWordWrap(True)
+        self.note.setTextFormat(Qt.TextFormat.RichText)
+        self.note.setOpenExternalLinks(True)
+        lay.addWidget(self.note)
 
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Run with:"))
@@ -318,6 +323,7 @@ class Details(QtWidgets.QWidget):
             self.status.setText("Microsoft 365, Adobe and other Windows apps, through Wine, Proton or a "
                                 "Windows VM. Drop a file on an app to open it there.")
             self.routes_box.setText("")
+            self.note.setText("")
             return
         a, b = res.app, self.win.bridge
         self.title.setText(a.name)
@@ -334,6 +340,8 @@ class Details(QtWidgets.QWidget):
             label = next((s.backend.label for s in res.routes if s.backend.name == pref), pref)
             text += f"<br><i>Your choice, {html.escape(label)}, can't open it right now, so another way is used.</i>"
         self.status.setText(text)
+        self.note.setVisible(bool(a.note))
+        self.note.setText(f"<i>{_link(a.note)}</i>" if a.note else "")
 
         self.route.clear()
         self.route.addItem("Automatic (best available)", None)
@@ -344,16 +352,18 @@ class Details(QtWidgets.QWidget):
 
         ready = res.status == READY
         self.open_btn.setEnabled(ready)
+        self.open_btn.setText("Run" if a.kind == "tool" else "Open")
         self.file_btn.setEnabled(ready and bool(a.mime))
-        cmds = b.install_commands(res)
-        self.install_btn.setEnabled(bool(cmds))
-        self.install_btn.setText("Repair / Update" if ready and cmds else ("Set Up" if a.kind == "service" else "Install"))
+        installable = b.can_install(res)
+        self.install_btn.setEnabled(installable)
+        self.install_btn.setText("Repair / Update" if ready and installable
+                                 else ("Set Up" if a.kind == "service" else "Install"))
         self.stop_btn.setEnabled(b.stop_command(res) is not None)
         in_menu = self.win.integrator.integrated(a.id)
         self.menu_btn.setText("Remove from App Menu" if in_menu else "Add to App Menu")
         self.menu_btn.setIcon(theme_icon("bookmark-remove", "list-remove") if in_menu
                               else theme_icon("bookmark-new", "list-add"))
-        self.menu_btn.setEnabled(in_menu or ready)
+        self.menu_btn.setEnabled(in_menu or (ready and a.kind != "tool"))
         self.default_btn.setEnabled(ready and bool(a.mime))
         self.remove_btn.setVisible(a.suite == "Custom")
 
@@ -406,8 +416,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.suites.setMaximumWidth(220)
         for label, key, icon in [("All Apps", "*", "view-list-icons"), ("Ready", "ready", "emblem-ok-symbolic")] + \
                 [(s, s, {"Microsoft 365": "x-office-document", "Adobe": "applications-graphics",
-                         "Communication & sync": "internet-group-chat", "Windows VM": "computer",
-                         "Custom": "wine"}.get(s, "folder")) for s in SUITES]:
+                         "CAD & 3D": "applications-engineering", "Design & art": "applications-graphics",
+                         "Audio": "applications-multimedia", "Communication & sync": "internet-group-chat",
+                         "Windows VM": "computer", "Custom": "wine"}.get(s, "folder")) for s in SUITES]:
             it = QtWidgets.QListWidgetItem(theme_icon(icon, "folder"), label)
             it.setData(ROLE, key)
             self.suites.addItem(it)
@@ -529,6 +540,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tree.setCurrentItem(it)
             self._status(f"{res.app.name} isn't ready yet: {res.summary}")
             return
+        if res.app.kind == "tool":
+            ProcessDialog(self, self.bridge, res.app.name, self.bridge.launch_commands(res, [])).exec()
+            return
         try:
             log = self.bridge.log_path(res.app.id)
             for c in self.bridge.launch_commands(res, files or []):
@@ -550,7 +564,20 @@ class MainWindow(QtWidgets.QMainWindow):
     def install(self, res: Resolved | None):
         if not res:
             return
-        cmds = self.bridge.install_commands(res)
+        source = None
+        kind, what = self.bridge.source_needed(res)
+        if what:
+            QtWidgets.QMessageBox.information(
+                self, f"Install {res.app.name}",
+                f"{res.app.name} installs from {what}.\n\nDownload it first, then choose it in the next window.")
+            title = f"Choose {what}"
+            if kind == "dir":
+                source = QtWidgets.QFileDialog.getExistingDirectory(self, title, str(Path.home() / "Downloads"))
+            else:
+                source, _ = QtWidgets.QFileDialog.getOpenFileName(self, title, str(Path.home() / "Downloads"))
+            if not source:
+                return
+        cmds = self.bridge.install_commands(res, source)
         if not cmds:
             QtWidgets.QMessageBox.information(self, res.app.name, self.bridge.install_hint(res))
             return
@@ -612,7 +639,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if d.exec() and d.added:
             self.refresh(force=True, keep=d.added.id)
             res = self.results.get(d.added.id)
-            if res and res.status == NOT_INSTALLED and self.bridge.install_commands(res):
+            if res and res.status == NOT_INSTALLED and self.bridge.can_install(res):
                 self.install(res)
 
     def remove_custom(self, res: Resolved | None):
@@ -649,7 +676,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 m.addAction(f"Open with {s.backend.label}",
                             lambda _c=False, s=s: self.launch(Resolved(res.app, READY, s, res.routes)))
         m.addSeparator()
-        m.addAction("Install / Set Up…", lambda _c=False: self.install(res)).setEnabled(bool(self.bridge.install_commands(res)))
+        m.addAction("Install / Set Up…", lambda _c=False: self.install(res)).setEnabled(self.bridge.can_install(res))
         m.addAction("Add to / Remove from App Menu", lambda _c=False: self.toggle_menu(res))
         m.exec(self.tree.viewport().mapToGlobal(pos))
 

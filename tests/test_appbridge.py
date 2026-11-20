@@ -548,5 +548,207 @@ class CliTests(Base):
         self.assertIn("pip install", out)
 
 
+class CadCreativeAudioTests(Base):
+    """The script-driven projects: AutoCAD, Inventor, Fusion, SOLIDWORKS, Affinity, CSP, Ableton, Bottles."""
+
+    def projects(self):
+        return self.d.home / ".local/share/appbridge/projects"
+
+    def test_autocad_needs_installer_file(self):
+        for t in ("wine", "winetricks", "gcc", "python3", "bsdtar", "git"):
+            self.d.tool(t)
+        b = self.bridge()
+        res = b.resolve(b.app("autocad"))
+        self.assertEqual((res.status, res.backend.name), (NOT_INSTALLED, "autocad"))
+        self.assertEqual(b.source_needed(res)[0], "file")
+        self.assertEqual(b.install_commands(res), [])          # nothing to run without --from
+        code, out = run_cli(self.d, "install", "autocad")
+        self.assertEqual(code, cli.EXIT_NOT_READY)
+        self.assertIn("--from", out)
+        setup = self.d.put("Downloads/Autodesk_AutoCAD_2027_setup.exe", b"MZ")
+        cmds = b.install_commands(res, str(setup))
+        self.assertEqual(cmds[0].argv[1:4], ["clone", "--depth", "1"])
+        self.assertTrue(cmds[0].argv[4].endswith("ExonSounds/AutoCAD-2027-Wine.git"))
+        self.assertEqual(cmds[1].argv, [str(self.projects() / "AutoCAD-2027-Wine/install.sh"), str(setup),
+                                        "--prefix", str(self.d.home / ".autocad")])
+        self.assertTrue(cmds[1].interactive)
+        code, out = run_cli(self.d, "install", "autocad", "--from", str(setup), "--dry-run")
+        self.assertEqual(code, 0, out)
+
+    def test_autocad_missing_build_tools(self):
+        self.d.tool("wine")
+        res = self.bridge().resolve(self.bridge().app("autocad"))
+        self.assertEqual(res.status, NO_BACKEND)
+        self.assertIn("winetricks", res.summary)
+
+    def test_autocad_installed_needs_no_build_tools(self):
+        self.d.put(".autocad/drive_c/Program Files/Autodesk/AutoCAD 2027/acad.exe", b"MZ")
+        self.d.put(".autocad/launcher/acad.sh", b"#!/bin/sh\n")
+        b = self.bridge()
+        res = b.resolve(b.app("autocad"))
+        self.assertEqual(res.status, READY)
+        dwg = self.d.put("plan.dwg")
+        self.assertEqual(b.launch_commands(res, [str(dwg)])[0].argv,
+                         [str(self.d.home / ".autocad/launcher/acad.sh"), str(dwg)])
+        self.assertEqual(b.app("autocad").wm_class, "acad.exe")
+
+    def test_inventor_newest_prefix_and_year(self):
+        proj = self.projects() / "Autodesk-Inventor-for-Linux/scripts"
+        proj.mkdir(parents=True)
+        (proj / "launch-inventor.sh").write_text("")
+        self.d.put(".wine-inventor2026/drive_c/Program Files/Autodesk/Inventor 2026/Bin/Inventor.exe", b"MZ")
+        self.d.put(".wine-inventor2027/drive_c/Program Files/Autodesk/Inventor 2027/Bin/Inventor.exe", b"MZ")
+        b = self.bridge()
+        res = b.resolve(b.app("inventor"))
+        self.assertEqual(res.status, READY)
+        c = b.launch_commands(res, [])[0]
+        self.assertEqual(c.env, {"INV_PREFIX": str(self.d.home / ".wine-inventor2027"), "INV_YEAR": "2027"})
+        self.assertEqual(c.argv[-1], str(proj / "launch-inventor.sh"))
+
+    def test_inventor_install_takes_a_folder(self):
+        for t in ("python3", "curl", "git"):
+            self.d.tool(t)
+        f = self.d.put("Downloads/Inventor_setup.exe")
+        code, out = run_cli(self.d, "install", "inventor", "--from", str(f), "--dry-run")
+        self.assertEqual(code, 1)
+        self.assertIn("needs a folder", out)
+        code, out = run_cli(self.d, "install", "inventor", "--from", str(f.parent), "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("scripts/install.sh", out)
+
+    def test_fusion(self):
+        self.d.tool("curl")
+        self.d.tool("git")
+        b = self.bridge()
+        res = b.resolve(b.app("fusion"))
+        self.assertEqual(res.status, NOT_INSTALLED)
+        cmds = b.install_commands(res)
+        self.assertEqual(cmds[-1].argv[-2:], ["--install", "--default"])
+        self.assertTrue(cmds[-1].argv[1].endswith("files/setup/autodesk_fusion_installer_x86-64.sh"))
+        self.d.put(".autodesk_fusion/bin/autodesk_fusion_launcher.sh")
+        self.d.put(".autodesk_fusion/wineprefixes/default/drive_c/Program Files/Autodesk/webdeploy/production/"
+                   "abc123/Fusion360.exe", b"MZ")
+        res = b.resolve(b.app("fusion"))
+        self.assertEqual(res.status, READY)
+        self.assertEqual(b.launch_commands(res, [str(self.d.put("x.f3d"))])[0].argv,
+                         [str(self.d.home / ".autodesk_fusion/bin/autodesk_fusion_launcher.sh")])
+
+    def test_solidworks_is_experimental_and_sequenced(self):
+        for t in ("python3", "gcc", "make", "winetricks", "git"):
+            self.d.tool(t)
+        media = self.d.home / "Downloads/SOLIDWORKS 2026 SP03.2"
+        media.mkdir(parents=True)
+        code, out = run_cli(self.d, "info", "solidworks")
+        self.assertIn("Experimental", out)
+        code, out = run_cli(self.d, "list")
+        self.assertIn("(experimental)", out)
+        b = self.bridge()
+        res = b.resolve(b.app("solidworks"))
+        cmds = b.install_commands(res, str(media))
+        script = cmds[-1].argv[2]
+        self.assertEqual(cmds[-1].env, {"SOLIDWORKS_FULL_MEDIA_DIR": str(media)})
+        order = ["build-helpers.sh", "build-wine-runtime.py --prepare-only", "setup-prefix.sh",
+                 "install-vendor-prerequisites.sh --install", "install-solidworks-direct.sh --verify",
+                 "configure-fonts.sh"]
+        self.assertEqual([script.index(x) for x in order], sorted(script.index(x) for x in order))
+        r = subprocess.run(["bash", "-n", "-c", script], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_affinity_uses_installers_desktop_entry(self):
+        self.d.put(".AffinityLinux/drive_c/Program Files/Affinity/Affinity/Affinity.exe", b"MZ")
+        self.d.put(".AffinityLinux/ElementalWarriorWine/bin/wine")
+        b = self.bridge()
+        res = b.resolve(b.app("affinity"))
+        self.assertEqual(res.status, READY)
+        c = b.launch_commands(res, [])[0]
+        self.assertEqual(c.env["WINEPREFIX"], str(self.d.home / ".AffinityLinux"))
+        wine = self.d.home / ".AffinityLinux/ElementalWarriorWine/bin/wine"
+        self.d.put(".local/share/applications/Affinity.desktop",
+                   f'[Desktop Entry]\nName=Affinity\nExec=env WINEPREFIX=/x DXVK_HUD=0 {wine} '
+                   f'"C:/Program Files/Affinity/Affinity/Affinity.exe" %F\n'.encode())
+        art = self.d.put("art.af")
+        c = b.launch_commands(res, [str(art)])[0]
+        self.assertEqual(c.argv[:3], ["env", "WINEPREFIX=/x", "DXVK_HUD=0"])
+        self.assertEqual(c.argv[-1], to_windows_path(str(art)))
+        # the installer's own entry means no second menu entry from us
+        r = Integrator(b).add(["affinity"], include_self=False)
+        self.assertIn("Affinity.desktop", r.skipped[0][1])
+
+    def test_clip_studio_reads_csprc(self):
+        data = self.d.home / ".local/share/csp-linux/data"
+        self.d.put(".config/csprc", f"PROTON_PATH=/x\nSTEAM_COMPAT_DATA_PATH={data}\n".encode())
+        b = self.bridge()
+        self.assertEqual(b.resolve(b.app("clipstudio")).status, NO_BACKEND)
+        self.d.put(str((data / "pfx/drive_c/Program Files/CELSYS/CLIP STUDIO 1.5/CLIP STUDIO PAINT/"
+                        "CLIPStudioPaint.exe").relative_to(self.d.home)), b"MZ")
+        self.d.tool("csp-linux")
+        res = b.resolve(b.app("clipstudio"))
+        self.assertEqual((res.status, res.backend.name), (READY, "csp"))
+        self.assertTrue(b.launch_commands(res, [])[0].argv[0].endswith("csp-linux"))
+
+    def test_ableton_installs_from_run_file(self):
+        self.d.tool("sh")
+        b = self.bridge()
+        res = b.resolve(b.app("ableton"))
+        self.assertEqual((res.status, res.backend.name), (NOT_INSTALLED, "ableton"))
+        run = self.d.put("Downloads/install-ableton-latest.run")
+        self.assertEqual(b.install_commands(res, str(run))[0].argv, ["sh", str(run), "install"])
+        self.d.tool("ableton-live")
+        res = b.resolve(b.app("ableton"))
+        self.assertEqual(res.status, READY)
+        self.assertEqual(b.launch_commands(res, ["/m/set.als"])[0].argv[1:], ["/m/set.als"])
+
+    def test_bottles_finds_app_in_any_bottle(self):
+        self.d.tool("flatpak")
+        self.d.flatpak_app("com.usebottles.bottles")
+        bdir = ".var/app/com.usebottles.bottles/data/bottles/bottles/Music"
+        self.d.put(f"{bdir}/bottle.yml", b"Name: Music Production\nRunner: soda\n")
+        exe = self.d.put(f"{bdir}/drive_c/Program Files/Image-Line/FL Studio 2025/FL64.exe", b"MZ")
+        b = self.bridge()
+        res = b.resolve(b.app("flstudio"))
+        self.assertEqual((res.status, res.backend.name), (READY, "bottles"))
+        song = self.d.put("song.flp")
+        argv = b.launch_commands(res, [str(song)])[0].argv
+        self.assertEqual(argv[1:], ["run", "--command=bottles-cli", "com.usebottles.bottles", "run", "-b",
+                                    "Music Production", "-e", str(exe), "--", to_windows_path(str(song))])
+        self.assertEqual(b.stop_command(res).argv[-3:], ["stop", "-b", "Music Production"])
+        self.assertIn("fl-studio-linux-setup", b.app("flstudio").note)
+
+    def test_bottles_without_the_app_is_not_installable_by_us(self):
+        self.d.tool("bottles-cli")
+        b = self.bridge()
+        res = b.resolve(b.app("flstudio"))
+        self.assertEqual(res.status, NOT_INSTALLED)
+        self.assertFalse(b.can_install(res))
+
+    def test_yabridge_tool(self):
+        self.d.tool("yabridgectl")
+        b = self.bridge()
+        res = b.resolve(b.app("yabridge"))
+        self.assertEqual(res.status, READY)
+        self.assertEqual(b.launch_commands(res, [])[0].argv[1:], ["sync"])
+        r = Integrator(b).add(["yabridge"], include_self=False)
+        self.assertEqual(r.written, [])
+
+    def test_versioned_upstream_entry_counts_as_duplicate(self):
+        self.d.put(".autocad/drive_c/Program Files/Autodesk/AutoCAD 2027/acad.exe", b"MZ")
+        self.d.put(".autocad/launcher/acad.sh")
+        self.d.put(".local/share/applications/wine/Programs/Autodesk/autocad.desktop",
+                   b"[Desktop Entry]\nType=Application\nName=AutoCAD 2027\nExec=acad.sh\n")
+        r = Integrator(self.bridge()).add(["autocad"], include_self=False)
+        self.assertIn("autocad.desktop", r.skipped[0][1])
+        # "AutoCAD LT" is a different product, not a version of it
+        p = self.d.home / ".local/share/applications/wine/Programs/Autodesk/autocad.desktop"
+        p.write_text("[Desktop Entry]\nType=Application\nName=AutoCAD LT\nExec=x\n")
+        r = Integrator(self.bridge()).add(["autocad"], include_self=False)
+        self.assertEqual(len(r.written), 1)
+
+    def test_every_new_project_has_a_submodule_or_default(self):
+        from appbridge.host import DEFAULT_UPSTREAMS
+        for b in BACKENDS.values():
+            if b.project:
+                self.assertIn(b.project, DEFAULT_UPSTREAMS, b.name)
+
+
 if __name__ == "__main__":
     unittest.main()

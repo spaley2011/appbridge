@@ -15,11 +15,19 @@ which ones are set up on your machine, and uses the best one that works:
 | Word, Excel, PowerPoint, Outlook, OneNote, Access, Publisher | Wine/Proton via [office365_flake](https://github.com/Tombert/office365_flake) (no VM) → Windows VM via [LinOffice](https://github.com/eylenburg/linoffice) → Windows VM via [WinApps](https://github.com/winapps-org/winapps). Outlook and OneNote also fall back to [Prospect Mail](https://github.com/julian-alarcon/prospect-mail) and [P3X OneNote](https://github.com/patrikx3/onenote). |
 | Photoshop, Illustrator, Premiere Pro, After Effects, InDesign, InCopy, Animate, Audition, Media Encoder, Bridge, Lightroom (Classic), Acrobat, Creative Cloud | Wine via [LinDobe](https://github.com/le-birnes/LinDobe) (built on [PhialsBasement's patches](https://github.com/PhialsBasement/wine-adobe-installers)) → WinApps |
 | Teams, OneDrive | [teams-for-linux](https://github.com/IsmaelMartinez/teams-for-linux) (Flathub or native); [onedrive](https://github.com/abraunegg/onedrive) as a systemd user service |
+| AutoCAD, Inventor, Fusion, SOLIDWORKS (experimental) | Wine via [AutoCAD-2027-Wine](https://github.com/ExonSounds/AutoCAD-2027-Wine), [Autodesk-Inventor-for-Linux](https://github.com/Harvi654/Autodesk-Inventor-for-Linux), [cryinkfly's Fusion installer](https://github.com/cryinkfly/Autodesk-Fusion-360-for-Linux) and [solidworks-wine](https://github.com/VV-cephei/solidworks-wine) |
+| Affinity, Clip Studio Paint | Wine via [AffinityOnLinux](https://github.com/ryzendew/Linux-Affinity-Installer) → WinApps; Proton via [csp-linux](https://github.com/minsiam/csp-linux) → [Bottles](https://github.com/bottlesdevs/Bottles) |
+| Ableton Live, FL Studio, Windows VST/CLAP plugins | Wine via [ableton-linux](https://github.com/shibco/ableton-linux) → Bottles; FL Studio in Bottles ([guide](https://github.com/torbuntu/fl-studio-linux-setup)); [yabridge](https://github.com/robbert-vdh/yabridge) for plugins in native DAWs |
 | Visio, Project, Power BI, SQL Server Management Studio, Visual Studio, full Windows desktop | WinApps (Wine can't run these) |
 | Your company's own Windows tools | Wine or Proton (umu-launcher), in a prefix per app: `appbridge add` |
 
-appbridge doesn't install or crack anything itself: you bring your own Microsoft
-365 and Adobe subscriptions, and the upstream project does the installing.
+CAD, design and audio apps go through Wine on purpose: they need the GPU or
+low-latency audio, which a Windows VM handles badly (no real 3D acceleration,
+audio over RDP). Their projects are younger, so check each app's note
+(`appbridge info APP`); SOLIDWORKS in particular is experimental.
+
+appbridge doesn't install or crack anything itself: you bring your own
+subscriptions and licenses, and the upstream project does the installing.
 
 ## Install
 
@@ -46,6 +54,9 @@ appbridge info word                  # all the ways Word can run here and what e
 appbridge install word               # runs the backend's installer (here: ms365 install)
 appbridge launch word ~/report.docx  # open files; `--backend winapps` to force a route
 appbridge stop photoshop             # close Adobe apps cleanly (adobewine off)
+appbridge install autocad --from ~/Downloads/Autodesk_AutoCAD_2027_2_English_en-US_setup_webinstall.exe
+appbridge install solidworks --from "$HOME/Downloads/SOLIDWORKS 2026 SP03.2"   # a folder
+appbridge launch yabridge            # re-sync Windows audio plugins after installing new ones
 appbridge prefer word winapps        # always use the VM for Word (`auto` to undo)
 appbridge integrate                  # add every ready app to the app menu
 appbridge integrate --default-handlers word excel   # ...and make them the default for .docx/.xlsx
@@ -61,6 +72,11 @@ appbridge run expenses regedit       # any program in that prefix
 # which Windows functions is Wine missing for an installed app? (needs debpak's winegap)
 appbridge gap photoshop --index ~/.cache/debpak/wine/11.8_x86_64.json
 ```
+
+Apps that install from a vendor download (AutoCAD, Inventor, SOLIDWORKS,
+Ableton's `.run`) take it with `--from`; `appbridge install APP` without it says
+what to download. The CAD, design and audio projects are cloned from your forks
+into `~/.local/share/appbridge/projects/` on first install.
 
 `launch` exits with status 3 and says what's missing when an app isn't ready.
 When it was started from the app menu, it shows that as a desktop notification.

@@ -157,18 +157,27 @@ class Integrator:
         ]) + "\n"
 
     def _foreign_duplicate(self, name: str) -> Path | None:
-        """Another (non-appbridge) entry with the same name, e.g. one LinDobe or the flake made."""
+        """Another (non-appbridge) menu entry for the same app, e.g. one LinDobe, the flake or an
+        installer script made: same name, or the name plus a version ("AutoCAD 2027"). Looks in
+        subfolders too (Wine's own entries live in applications/wine/Programs/...)."""
         if not self.apps_dir.is_dir():
             return None
-        for p in self.apps_dir.glob("*.desktop"):
-            if p.name.startswith(PREFIX):
+        want = name.lower()
+        for p in sorted(self.apps_dir.rglob("*.desktop")):
+            if p.name.startswith(PREFIX) or p.name.startswith(SELF_ID):
                 continue
             try:
                 text = p.read_text(errors="replace")
             except OSError:
                 continue
-            if f"\nName={name}\n" in "\n" + text and "NoDisplay=true" not in text:
-                return p
+            if "NoDisplay=true" in text or "Hidden=true" in text:
+                continue
+            for line in text.splitlines():
+                if line.startswith("Name="):
+                    other = line[5:].strip().lower()
+                    if other == want or (other.startswith(want + " ") and other[len(want) + 1:][:1].isdigit()):
+                        return p
+                    break
         return None
 
     def add(self, app_ids: list[str] | None = None, force: bool = False, include_self: bool = True,
@@ -180,6 +189,9 @@ class Integrator:
             if res.status != READY and not force:
                 if app_ids:
                     out.skipped.append((a.id, f"not ready: {res.summary}"))
+                continue
+            if a.kind == "tool" and not force:
+                out.skipped.append((a.id, "it's a helper you run from AppBridge, not an app for the menu"))
                 continue
             if res.state and res.state.backend.name in ("flatpak", "native") and not force:
                 out.skipped.append((a.id, "it installs its own menu entry"))

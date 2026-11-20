@@ -3,7 +3,9 @@ whether a given app is installed under it, and the commands that launch,
 install and stop that app."""
 from __future__ import annotations
 
+import os
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,8 +66,20 @@ class Backend:
             return [Command(t + [self.target(route, host), f]) for f in files]
         return [Command(t + [self.target(route, host), *files])]
 
-    def install(self, app: App, route: Route, host: Host) -> list[Command]:
+    # Some apps install from a file you download from the vendor (Autodesk, Dassault...).
+    source_kind = ""     # "", "file" or "dir": what `appbridge install APP --from` takes
+    source_what = ""     # shown when it's missing
+
+    def install(self, app: App, route: Route, host: Host, source=None) -> list[Command]:
         return []
+
+    def can_install(self, app: App, route: Route, host: Host) -> bool:
+        """Whether appbridge can run an installer for it (perhaps given --from FILE)."""
+        return bool(self.install(app, route, host))
+
+    def source_needed(self, app: App, route: Route, host: Host) -> str:
+        """What vendor file the install needs, or "" if none."""
+        return self.source_what if self.source_kind else ""
 
     def stop(self, app: App, route: Route, host: Host) -> Command | None:
         return None
@@ -147,7 +161,7 @@ class Ms365(Backend):
     def launch(self, app, route, files, host):
         return [Command((self.tool(host) or []) + ["run", route.target, *files])]
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         t = self.tool(host)
         return [Command(t + ["install"], label="Download and install Microsoft 365 (several GB)")] if t else []
 
@@ -197,7 +211,7 @@ class LinDobe(Backend):
     def installed(self, app, route, host):
         return self.exe_path(app, route, host) is not None
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         t = self.tool(host)
         if not t:
             return []
@@ -262,7 +276,7 @@ class WinApps(Backend):
         p = self._apps_dir(host) / self.target(route, host) / "icon.svg"
         return p if p.is_file() else None
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         sub = host.submodule_dir(self.project)
         if sub and (sub / "setup.sh").exists():
             return [Command(["bash", str(sub / "setup.sh")], interactive=True,
@@ -291,7 +305,7 @@ class LinOffice(Backend):
             return [fp, "run", "--command=/app/linoffice.sh", self.flatpak_id]
         return None
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         if fp := host.which("flatpak"):
             return [Command([fp, "remote-add", "--if-not-exists", "--user", "linoffice",
                              "https://eylenburg.github.io/linoffice/index.flatpakrepo"], label="Add the LinOffice remote"),
@@ -313,7 +327,7 @@ class LinOffice(Backend):
 # --------------------------------------------------------------------------- native Linux wrappers
 
 _NATIVE_PROJECTS = {"teams-for-linux": "teams-for-linux", "prospect-mail": "prospect-mail",
-                    "p3x-onenote": "onenote", "onedrive": "onedrive"}
+                    "p3x-onenote": "onenote", "onedrive": "onedrive", "yabridgectl": "yabridge"}
 
 
 class Flatpak(Backend):
@@ -338,7 +352,7 @@ class Flatpak(Backend):
     def launch(self, app, route, files, host):
         return [Command((self.tool(host) or ["flatpak"]) + ["run", route.target, *files])]
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         t = self.tool(host)
         if t and route.remote:
             return [Command(t + ["install", "--user", "-y", route.remote, route.target], label=f"Install {route.target}")]
@@ -373,7 +387,7 @@ class Native(Backend):
         return host.which(route.target) is not None
 
     def launch(self, app, route, files, host):
-        return [Command([host.which(route.target) or route.target, *files])]
+        return [Command([host.which(route.target) or route.target, *route.args, *files])]
 
     def icon_name(self, app, route, host):
         return route.target
@@ -409,7 +423,7 @@ class Service(Backend):
             cmds.append(Command([opener, str(self.sync_dir(host))]))
         return cmds
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         t = self.tool(host)
         od = host.which("onedrive")
         if not t or not od:
@@ -471,7 +485,7 @@ class Wine(Backend):
         exe = self.exe_path(app, route, host)
         return [self._cmd(app, host, str(exe), [to_windows_path(f) for f in files])]
 
-    def install(self, app, route, host):
+    def install(self, app, route, host, source=None):
         inst = app.custom.get("installer")
         return [self._cmd(app, host, str(host.expand(inst)), [])] if inst else []
 
@@ -488,5 +502,373 @@ class Wine(Backend):
         return "needs wine or umu-run on PATH"
 
 
-BACKENDS: dict[str, Backend] = {b.name: b for b in
-                                (Ms365(), LinDobe(), WinApps(), LinOffice(), Flatpak(), Native(), Service(), Wine())}
+
+
+# --------------------------------------------------------------------------- script-driven community projects
+#
+# CAD, design and audio apps need the GPU or low-latency audio, which a Windows
+# VM handles badly, so these run on Wine through projects whose scripts carry
+# each app's fixes. appbridge clones the project (your fork, once forked) into
+# ~/.local/share/appbridge/projects/NAME on first install and runs its scripts.
+
+class ScriptProject(Backend):
+    requires: tuple[str, ...] = ()    # host programs the project's installer needs
+
+    def route_of(self, app: App) -> Route:
+        return next(r for r in app.routes if r.backend == self.name)
+
+    def project_dir(self, host: Host) -> Path:
+        override = host.env.get(f"APPBRIDGE_{self.name.upper()}_SRC")
+        return Path(override) if override else host.data_home / "appbridge/projects" / self.project
+
+    def ready(self, host):
+        missing = [t for t in self.requires if not host.which(t)]
+        d = self.project_dir(host)
+        if not (d.is_dir() and any(d.iterdir())) and not host.which("git"):
+            missing.append("git")
+        if missing:
+            return Check(False, f"needs {', '.join(missing)} to install ({self.repo_url(host)})")
+        return Check(True, str(d) if d.is_dir() else f"can install (downloads {self.project} to {d})")
+
+    def ready_app(self, app, host):
+        # Once installed, the build tools the installer needed don't matter.
+        if self.installed(app, self.route_of(app), host):
+            return Check(True, "installed")
+        return self.ready(host)
+
+    def fetch(self, host: Host) -> list[Command]:
+        d = self.project_dir(host)
+        if d.is_dir() and any(d.iterdir()):
+            return []
+        return [Command([host.which("git") or "git", "clone", "--depth", "1", f"{self.repo_url(host)}.git", str(d)],
+                        label=f"Download {self.project}")]
+
+    def install_steps(self, app: App, route: Route, host: Host, source) -> list[Command]:
+        return []
+
+    def install(self, app, route, host, source=None):
+        if self.source_kind and not source:
+            return []
+        return self.fetch(host) + self.install_steps(app, route, host, source)
+
+    def can_install(self, app, route, host):
+        return self.ready(host).ok
+
+    def _wineserver_stop(self, prefix: Path, host: Host, wineserver: str = "wineserver") -> Command | None:
+        ws = host.which(wineserver)
+        return Command([ws, "-k"], {"WINEPREFIX": str(prefix)}, label="Stop the app's Wine session") if ws else None
+
+
+class AutoCAD(ScriptProject):
+    name, label, project = "autocad", "Wine (AutoCAD-2027-Wine)", "AutoCAD-2027-Wine"
+    requires = ("wine", "winetricks", "gcc", "python3", "bsdtar")
+    source_kind = "file"
+    source_what = ("Autodesk's AutoCAD 2027 installer .exe (the web installer from autodesk.com, "
+                   "trial or subscription)")
+
+    def prefix(self, host: Host) -> Path:
+        return Path(host.env.get("APPBRIDGE_AUTOCAD_PREFIX") or host.home / ".autocad")
+
+    def exe_path(self, app, route, host):
+        return _newest(self.prefix(host) / "drive_c/Program Files/Autodesk", route.exe)
+
+    def installed(self, app, route, host):
+        return self.exe_path(app, route, host) is not None and (self.prefix(host) / "launcher/acad.sh").is_file()
+
+    def launch(self, app, route, files, host):
+        # acad.sh preloads the shim Autodesk's licensing service needs under Wine
+        return [Command([str(self.prefix(host) / "launcher/acad.sh"), *files])]
+
+    def install_steps(self, app, route, host, source):
+        return [Command([str(self.project_dir(host) / "install.sh"), str(source), "--prefix", str(self.prefix(host))],
+                        interactive=True, label="Install AutoCAD under Wine (30-60 minutes, about 30 GB)")]
+
+    def stop(self, app, route, host):
+        return self._wineserver_stop(self.prefix(host), host)
+
+
+class Inventor(ScriptProject):
+    name, label, project = "inventor", "Wine (Autodesk-Inventor-for-Linux)", "Autodesk-Inventor-for-Linux"
+    requires = ("python3", "curl")
+    source_kind = "dir"
+    source_what = "the folder with Autodesk's Inventor 2026 or 2027 download"
+
+    def prefix(self, host: Host) -> Path | None:
+        if p := host.env.get("INV_PREFIX"):
+            return Path(p)
+        return _newest(host.home, ".wine-inventor{year}")
+
+    def exe_path(self, app, route, host):
+        pre = self.prefix(host)
+        return _newest(pre / "drive_c/Program Files/Autodesk", route.exe) if pre else None
+
+    def installed(self, app, route, host):
+        return (self.exe_path(app, route, host) is not None
+                and (self.project_dir(host) / "scripts/launch-inventor.sh").is_file())
+
+    def launch(self, app, route, files, host):
+        pre = self.prefix(host)
+        env = {"INV_PREFIX": str(pre)}
+        if m := re.search(r"(\d{4})$", pre.name if pre else ""):
+            env["INV_YEAR"] = m.group(1)
+        return [Command(["bash", str(self.project_dir(host) / "scripts/launch-inventor.sh"), *files], env)]
+
+    def install_steps(self, app, route, host, source):
+        return [Command(["bash", str(self.project_dir(host) / "scripts/install.sh"), str(source)], interactive=True,
+                        label="Install Inventor under Wine (builds the project's Wine; about an hour)")]
+
+    def stop(self, app, route, host):
+        pre = self.prefix(host)
+        return self._wineserver_stop(pre, host) if pre else None
+
+
+class Fusion(ScriptProject):
+    name, label, project = "fusion", "Wine (Autodesk-Fusion-360-for-Linux)", "Autodesk-Fusion-360-for-Linux"
+    requires = ("curl",)
+
+    def home(self, host: Host) -> Path:
+        return Path(host.env.get("APPBRIDGE_FUSION_DIR") or host.home / ".autodesk_fusion")
+
+    def exe_path(self, app, route, host):
+        prod = self.home(host) / "wineprefixes/default/drive_c/Program Files/Autodesk/webdeploy/production"
+        try:
+            found = [p for p in prod.glob(f"*/{route.exe}") if p.is_file()]
+        except OSError:
+            return None
+        return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+    def installed(self, app, route, host):
+        return (self.home(host) / "bin/autodesk_fusion_launcher.sh").is_file() and \
+            self.exe_path(app, route, host) is not None
+
+    def launch(self, app, route, files, host):
+        return [Command([str(self.home(host) / "bin/autodesk_fusion_launcher.sh")])]   # takes no files
+
+    def install_steps(self, app, route, host, source):
+        script = self.project_dir(host) / "files/setup/autodesk_fusion_installer_x86-64.sh"
+        return [Command(["bash", str(script), "--install", "--default"], interactive=True,
+                        label="Install Fusion under Wine (asks for your password to install Wine packages)")]
+
+    def stop(self, app, route, host):
+        return self._wineserver_stop(self.home(host) / "wineprefixes/default", host)
+
+
+class SolidWorks(ScriptProject):
+    name, label, project = "solidworks", "Wine (solidworks-wine)", "solidworks-wine"
+    requires = ("python3", "gcc", "make", "winetricks")
+    source_kind = "dir"
+    source_what = ("the complete SOLIDWORKS 2026 SP03.2 media folder (PreReqs/, swwi/ ...) from your vendor "
+                   "or school")
+
+    def prefix(self, host: Host) -> Path:
+        return self.project_dir(host) / "prefix"     # the project keeps its prefix next to its scripts
+
+    def exe_path(self, app, route, host):
+        p = self.prefix(host) / "drive_c/Program Files/SOLIDWORKS Corp/SOLIDWORKS" / route.exe
+        return p if p.is_file() else None
+
+    def installed(self, app, route, host):
+        return self.exe_path(app, route, host) is not None
+
+    def launch(self, app, route, files, host):
+        return [Command([str(self.project_dir(host) / "bin/run-solidworks.sh"), *(files or ["--no-splash"])])]
+
+    def install_steps(self, app, route, host, source):
+        jobs = str(max(1, (os.cpu_count() or 2) - 1))
+        steps = " && ".join([
+            "cd " + shlex.quote(str(self.project_dir(host))),
+            "./bin/build-helpers.sh",
+            "{ [ -x wine-runtime/bin/wine ] || { python3 bin/build-wine-runtime.py --prepare-only && "
+            f"python3 bin/build-wine-runtime.py --build --jobs {jobs}; }}; }}",
+            "./bin/check-host.sh",
+            "{ [ -f prefix/system.reg ] || ./bin/setup-prefix.sh; }",
+            "./bin/install-vendor-prerequisites.sh --install",
+            "./bin/install-solidworks-direct.sh",
+            "./bin/install-solidworks-direct.sh --verify",
+            "./bin/configure-fonts.sh",
+        ])
+        return [Command(["bash", "-c", steps], {"SOLIDWORKS_FULL_MEDIA_DIR": str(source)}, interactive=True,
+                        label="Build the patched Wine and install SOLIDWORKS (several hours)")]
+
+    def stop(self, app, route, host):
+        rt = self.project_dir(host) / "wine-runtime/bin/wineserver"
+        return Command([str(rt), "-k"], {"WINEPREFIX": str(self.prefix(host))}) if rt.exists() else None
+
+
+class Affinity(ScriptProject):
+    name, label, project = "affinity", "Wine (AffinityOnLinux)", "Linux-Affinity-Installer"
+    requires = ("python3",)
+
+    def home(self, host: Host) -> Path:
+        return Path(host.env.get("APPBRIDGE_AFFINITY_DIR") or host.home / ".AffinityLinux")
+
+    def wine(self, host: Host) -> Path:
+        return self.home(host) / "ElementalWarriorWine/bin/wine"
+
+    def exe_path(self, app, route, host):
+        p = self.home(host) / "drive_c/Program Files/Affinity/Affinity" / route.exe
+        return p if p.is_file() else None
+
+    def installed(self, app, route, host):
+        return self.exe_path(app, route, host) is not None and self.wine(host).exists()
+
+    def launch(self, app, route, files, host):
+        # The installer keeps Affinity.desktop's Exec line in step with its Wine and
+        # renderer settings, so use that when it's there.
+        entry = host.data_home / "applications/Affinity.desktop"
+        argv = _desktop_exec(entry)
+        if argv:
+            wants_win = any(a.lower().endswith(".exe") for a in argv)
+            return [Command(argv + [to_windows_path(f) if wants_win else f for f in files])]
+        return [Command([str(self.wine(host)), str(self.exe_path(app, route, host)),
+                         *[to_windows_path(f) for f in files]], {"WINEPREFIX": str(self.home(host))})]
+
+    def install_steps(self, app, route, host, source):
+        return [Command(["python3", str(self.project_dir(host) / "AffinityScripts/AffinityLinuxInstaller.py")],
+                        label="AffinityOnLinux installer (a window opens; it needs PyQt6)")]
+
+    def stop(self, app, route, host):
+        ws = self.home(host) / "ElementalWarriorWine/bin/wineserver"
+        return Command([str(ws), "-k"], {"WINEPREFIX": str(self.home(host))}) if ws.exists() else None
+
+
+class ClipStudio(ScriptProject):
+    name, label, project = "csp", "Proton (csp-linux)", "csp-linux"
+    requires = ("wget", "pv")
+
+    def _rc(self, host: Host) -> dict[str, str]:
+        try:
+            text = (host.home / ".config/csprc").read_text()
+        except OSError:
+            return {}
+        return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+
+    def exe_path(self, app, route, host):
+        data = self._rc(host).get("STEAM_COMPAT_DATA_PATH")
+        if not data:
+            return None
+        p = Path(data) / "pfx/drive_c/Program Files/CELSYS/CLIP STUDIO 1.5/CLIP STUDIO PAINT" / route.exe
+        return p if p.is_file() else None
+
+    def installed(self, app, route, host):
+        return self.exe_path(app, route, host) is not None
+
+    def launch(self, app, route, files, host):
+        if p := host.which("csp-linux"):
+            return [Command([p])]
+        return [Command(["bash", str(self.project_dir(host) / "csp-linux")])]
+
+    def install_steps(self, app, route, host, source):
+        return [Command(["bash", str(self.project_dir(host) / "csp-installer.sh"), "4"], interactive=True,
+                        label="Download GE-Proton and install Clip Studio Paint")]
+
+
+class Ableton(ScriptProject):
+    name, label, project = "ableton", "Wine (ableton-linux)", "ableton-linux"
+    requires = ("sh",)
+    source_kind = "file"
+    source_what = ("install-ableton-latest.run from https://github.com/shibco/ableton-linux/releases "
+                   "(it asks for your Live installer .zip)")
+
+    def ready_app(self, app, host):
+        if host.which("ableton-live"):
+            return Check(True, "installed")
+        return Check(True, "installs from the project's .run file")
+
+    def installed(self, app, route, host):
+        return host.which("ableton-live") is not None
+
+    def fetch(self, host):
+        return []     # installs from its release file, not from source
+
+    def launch(self, app, route, files, host):
+        return [Command([host.which("ableton-live") or "ableton-live", *files])]
+
+    def install_steps(self, app, route, host, source):
+        return [Command(["sh", str(source), "install"], interactive=True,
+                        label="Install Ableton Live with ableton-linux's patched Wine")]
+
+
+class Bottles(Backend):
+    """Apps you set up yourself in Bottles (usebottles.com), found by their .exe."""
+    name, label, project = "bottles", "Bottles", "Bottles"
+    flatpak_id = "com.usebottles.bottles"
+
+    def tool(self, host):
+        if p := host.which("bottles-cli"):
+            return [p]
+        if host.flatpak_installed(self.flatpak_id) and (fp := host.which("flatpak")):
+            return [fp, "run", "--command=bottles-cli", self.flatpak_id]
+        return None
+
+    def _bottle_dirs(self, host: Host) -> list[Path]:
+        roots = [host.home / ".var/app" / self.flatpak_id / "data/bottles/bottles", host.data_home / "bottles/bottles"]
+        out = []
+        for r in roots:
+            try:
+                out += sorted(d for d in r.iterdir() if d.is_dir())
+            except OSError:
+                pass
+        return out
+
+    def find(self, route: Route, host: Host) -> tuple[str, Path] | None:
+        """(bottle name, exe) for the first bottle that has the app installed."""
+        for d in self._bottle_dirs(host):
+            try:
+                hits = sorted(p for p in (d / "drive_c").glob(route.target) if p.is_file())
+            except (OSError, ValueError):
+                continue
+            if hits:
+                name = d.name
+                try:
+                    for line in (d / "bottle.yml").read_text(errors="replace").splitlines():
+                        if line.startswith("Name:"):
+                            name = line.split(":", 1)[1].strip().strip("'\"") or name
+                            break
+                except OSError:
+                    pass
+                return name, hits[-1]
+        return None
+
+    def installed(self, app, route, host):
+        return self.find(route, host) is not None
+
+    def exe_path(self, app, route, host):
+        f = self.find(route, host)
+        return f[1] if f else None
+
+    def launch(self, app, route, files, host):
+        name, exe = self.find(route, host)
+        extra = ["--", *[to_windows_path(f) for f in files]] if files else []
+        return [Command((self.tool(host) or ["bottles-cli"]) + ["run", "-b", name, "-e", str(exe), *extra])]
+
+    def stop(self, app, route, host):
+        f, t = self.find(route, host), self.tool(host)
+        return Command(t + ["stop", "-b", f[0]]) if f and t else None
+
+    def hint(self, host):
+        return "needs Bottles (flatpak install flathub com.usebottles.bottles)"
+
+
+def _desktop_exec(path: Path) -> list[str] | None:
+    """The Exec= command of a .desktop file as argv, without %f-style field codes."""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    in_main = False
+    for line in lines:
+        if line.startswith("["):
+            in_main = line.strip() == "[Desktop Entry]"
+        elif in_main and line.startswith("Exec="):
+            try:
+                argv = shlex.split(line[5:])
+            except ValueError:
+                return None
+            return [a for a in argv if not re.fullmatch(r"%[fFuUick]", a)] or None
+    return None
+
+
+BACKENDS: dict[str, Backend] = {b.name: b for b in (
+    Ms365(), LinDobe(), WinApps(), LinOffice(), Flatpak(), Native(), Service(), Wine(),
+    AutoCAD(), Inventor(), Fusion(), SolidWorks(), Affinity(), ClipStudio(), Ableton(), Bottles())}

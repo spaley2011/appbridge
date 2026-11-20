@@ -88,7 +88,7 @@ class Bridge:
                 return Resolved(app, READY, s, states)
         settable = [s for s in states if s.check.ok]
         for s in settable:   # prefer a route appbridge can install the app through
-            if s.backend.install(app, s.route, self.host):
+            if s.backend.can_install(app, s.route, self.host):
                 return Resolved(app, NOT_INSTALLED, s, states)
         if settable:
             return Resolved(app, NOT_INSTALLED, settable[0], states)
@@ -133,8 +133,22 @@ class Bridge:
         files = [str(Path(f).expanduser().resolve()) if not _is_uri(f) else f for f in files]
         return res.backend.launch(res.app, res.state.route, files, self.host)
 
-    def install_commands(self, res: Resolved) -> list[Command]:
-        return res.backend.install(res.app, res.state.route, self.host) if res.state else []
+    def install_commands(self, res: Resolved, source: str | None = None) -> list[Command]:
+        if not res.state:
+            return []
+        if source:
+            source = str(Path(source).expanduser().resolve())
+        return res.backend.install(res.app, res.state.route, self.host, source=source)
+
+    def can_install(self, res: Resolved) -> bool:
+        return bool(res.state) and res.state.check.ok and res.backend.can_install(res.app, res.state.route, self.host)
+
+    def source_needed(self, res: Resolved) -> tuple[str, str]:
+        """("file" or "dir", what) when installing needs a file you download from the vendor; ("", "") if not."""
+        if not res.state:
+            return "", ""
+        what = res.backend.source_needed(res.app, res.state.route, self.host)
+        return (res.backend.source_kind, what) if what else ("", "")
 
     def stop_command(self, res: Resolved) -> Command | None:
         return res.backend.stop(res.app, res.state.route, self.host) if res.state else None

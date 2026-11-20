@@ -22,6 +22,16 @@ DEFAULT_UPSTREAMS = {
     "prospect-mail": "julian-alarcon/prospect-mail",
     "onenote": "patrikx3/onenote",
     "onedrive": "abraunegg/onedrive",
+    "AutoCAD-2027-Wine": "ExonSounds/AutoCAD-2027-Wine",
+    "Autodesk-Inventor-for-Linux": "Harvi654/Autodesk-Inventor-for-Linux",
+    "Autodesk-Fusion-360-for-Linux": "cryinkfly/Autodesk-Fusion-360-for-Linux",
+    "solidworks-wine": "VV-cephei/solidworks-wine",
+    "Linux-Affinity-Installer": "ryzendew/Linux-Affinity-Installer",
+    "csp-linux": "minsiam/csp-linux",
+    "ableton-linux": "shibco/ableton-linux",
+    "fl-studio-linux-setup": "torbuntu/fl-studio-linux-setup",
+    "yabridge": "robbert-vdh/yabridge",
+    "Bottles": "bottlesdevs/Bottles",
 }
 
 

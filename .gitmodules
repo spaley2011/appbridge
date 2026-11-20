@@ -58,3 +58,63 @@
 	branch = master
 	shallow = true
 	upstream = https://github.com/abraunegg/onedrive.git
+[submodule "third_party/AutoCAD-2027-Wine"]
+	path = third_party/AutoCAD-2027-Wine
+	url = https://github.com/ExonSounds/AutoCAD-2027-Wine.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/ExonSounds/AutoCAD-2027-Wine.git
+[submodule "third_party/Autodesk-Inventor-for-Linux"]
+	path = third_party/Autodesk-Inventor-for-Linux
+	url = https://github.com/Harvi654/Autodesk-Inventor-for-Linux.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/Harvi654/Autodesk-Inventor-for-Linux.git
+[submodule "third_party/Autodesk-Fusion-360-for-Linux"]
+	path = third_party/Autodesk-Fusion-360-for-Linux
+	url = https://github.com/cryinkfly/Autodesk-Fusion-360-for-Linux.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/cryinkfly/Autodesk-Fusion-360-for-Linux.git
+[submodule "third_party/solidworks-wine"]
+	path = third_party/solidworks-wine
+	url = https://github.com/VV-cephei/solidworks-wine.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/VV-cephei/solidworks-wine.git
+[submodule "third_party/Linux-Affinity-Installer"]
+	path = third_party/Linux-Affinity-Installer
+	url = https://github.com/ryzendew/Linux-Affinity-Installer.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/ryzendew/Linux-Affinity-Installer.git
+[submodule "third_party/csp-linux"]
+	path = third_party/csp-linux
+	url = https://github.com/minsiam/csp-linux.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/minsiam/csp-linux.git
+[submodule "third_party/ableton-linux"]
+	path = third_party/ableton-linux
+	url = https://github.com/shibco/ableton-linux.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/shibco/ableton-linux.git
+[submodule "third_party/fl-studio-linux-setup"]
+	path = third_party/fl-studio-linux-setup
+	url = https://github.com/torbuntu/fl-studio-linux-setup.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/torbuntu/fl-studio-linux-setup.git
+[submodule "third_party/yabridge"]
+	path = third_party/yabridge
+	url = https://github.com/robbert-vdh/yabridge.git
+	branch = master
+	shallow = true
+	upstream = https://github.com/robbert-vdh/yabridge.git
+[submodule "third_party/Bottles"]
+	path = third_party/Bottles
+	url = https://github.com/bottlesdevs/Bottles.git
+	branch = main
+	shallow = true
+	upstream = https://github.com/bottlesdevs/Bottles.git
