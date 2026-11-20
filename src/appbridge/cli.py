@@ -12,6 +12,7 @@
   appbridge remove ID
   appbridge doctor
   appbridge gap APP (--index FILE ... | --wine-source DIR)   winegap scan of the installed app (needs debpak)
+  appbridge trace APP [FILE ...] [--timeout S] [-- winegap options]  run it with Wine logging (needs debpak)
   appbridge gui [--tray]
 """
 from __future__ import annotations
@@ -342,6 +343,63 @@ def cmd_gap(b: Bridge, a) -> int:
     return winegap_main(["scan", str(exe.parent), "--name", app.name, *a.winegap_args])
 
 
+def cmd_trace(b: Bridge, a) -> int:
+    """Launch the app the usual way with Wine's debug logging on, then let winegap read the log."""
+    import time
+    try:
+        from debpak.cli_compat import winegap_main
+        from debpak.winetrace import DEFAULT_CHANNELS, run_traced
+    except ImportError:
+        return _err("`appbridge trace` uses debpak's winegap: pip install git+https://github.com/spaley2011/debpak")
+    app = b.app(a.app)
+    try:
+        res = b.resolve(app, a.backend)
+    except KeyError as e:
+        return _err(str(e).strip("'\""))
+    if res.status != READY:
+        return _err(f"{app.name} isn't ready: {res.summary}", EXIT_NOT_READY)
+    if not res.backend.wine_based:
+        return _err(f"{app.name} runs through {res.backend.label}, not Wine, so there's no Wine log to read "
+                    "(pick a Wine route with --backend)")
+    cmds = b.launch_commands(res, a.files)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    log = b.host.state_home / "appbridge/traces" / f"{app.id}-{stamp}.log"
+    for c in cmds[:-1]:
+        b.spawn(c)
+    main = cmds[-1]
+    wait = a.timeout or None
+    print(f"tracing {app.name} via {res.backend.label}" + (f" for {wait:g}s" if wait else " until it exits"),
+          file=sys.stderr)
+    print("use the features you want checked: open documents, menus, export ...", file=sys.stderr)
+    t0 = time.monotonic()
+    env = b.env_for(main)
+    env.setdefault("WINEDEBUG", DEFAULT_CHANNELS)
+    try:
+        code = run_traced(main.argv, log, env, timeout=wait)
+        # Many launchers start the app and exit; the app keeps logging to the same file.
+        left = (wait - (time.monotonic() - t0)) if wait else 0
+        if code is not None and left > 1:
+            print(f"the launcher returned; still tracing the app for {left:.0f}s (Ctrl+C to stop now)",
+                  file=sys.stderr)
+            time.sleep(left)
+    except KeyboardInterrupt:
+        pass
+    except OSError as e:
+        return _err(f"{main.argv[0]}: {e}")
+    finally:
+        if stop := b.stop_command(res):
+            subprocess.run(stop.argv, env=b.env_for(stop), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           check=False)
+    print(f"log: {log}", file=sys.stderr)
+    extra = list(a.winegap_args)
+    if extra[:1] == ["--"]:
+        extra = extra[1:]
+    exe = res.backend.exe_path(app, res.state.route, b.host)
+    if exe and exe.exists() and any(x in extra for x in ("--index", "--wine-source")) and "--static" not in extra:
+        extra += ["--static", str(exe.parent)]
+    return winegap_main(["trace", "--log", str(log), "--name", app.name, *extra])
+
+
 def cmd_gui(b: Bridge, a) -> int:
     from .gui import main as gui_main
     return gui_main(["--tray"] if a.tray else [])
@@ -433,6 +491,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("winegap_args", nargs=argparse.REMAINDER, help="--index FILE ... or --wine-source DIR, -o, --json")
     p.set_defaults(fn=cmd_gap)
 
+    p = sub.add_parser("trace", help="run an app with Wine's debug logging and report what failed "
+                                     "(debpak's winegap trace)")
+    p.add_argument("app")
+    p.add_argument("files", nargs="*", help="files to open while tracing")
+    p.add_argument("--backend", help="trace this route instead of the automatic choice")
+    p.add_argument("--timeout", type=float, default=180,
+                   help="seconds before the app is closed (default 180; 0 = until the launcher exits)")
+    # everything after `--` goes to winegap trace (split off in main(), since argparse's REMAINDER
+    # would also swallow appbridge's own options)
+    p.set_defaults(fn=cmd_trace, winegap_args=[])
+    p.epilog = "winegap options go after --, e.g.: appbridge trace word -- --index FILE -o word.gap.json"
+
     p = sub.add_parser("gui", help="open the AppBridge window")
     p.add_argument("--tray", action="store_true")
     p.set_defaults(fn=cmd_gui)
@@ -440,7 +510,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, host: Host | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    passthrough: list[str] = []
+    if argv[:1] == ["trace"] and "--" in argv:
+        i = argv.index("--")
+        argv, passthrough = argv[:i], argv[i + 1:]
     a = build_parser().parse_args(argv)
+    if passthrough:
+        a.winegap_args = passthrough
     try:
         b = Bridge(host)
         return a.fn(b, a)

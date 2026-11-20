@@ -44,6 +44,7 @@ class Backend:
     label = ""          # shown in the GUI and the menu actions
     project = ""        # submodule under third_party/
     single_file = False  # opens one file per launch
+    wine_based = False   # runs the app on Wine/Proton (so `appbridge trace` can log it)
 
     def tool(self, host: Host) -> list[str] | None:
         return None
@@ -131,6 +132,7 @@ def _newest(base: Path, pattern: str) -> Path | None:
 
 class Ms365(Backend):
     name, label, project = "ms365", "Wine/Proton (office365_flake)", "office365_flake"
+    wine_based = True
 
     def tool(self, host):
         if p := host.which("ms365"):
@@ -182,6 +184,7 @@ class Ms365(Backend):
 
 class LinDobe(Backend):
     name, label, project = "lindobe", "Wine (LinDobe)", "LinDobe"
+    wine_based = True
     flatpak_id = "io.github.le_birnes.AdobeWine"
 
     def _via_flatpak(self, host: Host) -> bool:
@@ -443,6 +446,7 @@ class Service(Backend):
 
 class Wine(Backend):
     name, label, project = "wine", "Wine", "umu-launcher"
+    wine_based = True
 
     def _runner(self, app: App) -> str:
         return app.custom.get("runner", "wine")
@@ -513,6 +517,7 @@ class Wine(Backend):
 
 class ScriptProject(Backend):
     requires: tuple[str, ...] = ()    # host programs the project's installer needs
+    wine_based = True
 
     def route_of(self, app: App) -> Route:
         return next(r for r in app.routes if r.backend == self.name)
@@ -791,6 +796,7 @@ class Ableton(ScriptProject):
 
 class Bottles(Backend):
     """Apps you set up yourself in Bottles (usebottles.com), found by their .exe."""
+    wine_based = True
     name, label, project = "bottles", "Bottles", "Bottles"
     flatpak_id = "com.usebottles.bottles"
 

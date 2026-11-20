@@ -71,6 +71,12 @@ appbridge run expenses regedit       # any program in that prefix
 
 # which Windows functions is Wine missing for an installed app? (needs debpak's winegap)
 appbridge gap photoshop --index ~/.cache/debpak/wine/11.8_x86_64.json
+
+# what actually goes wrong when it runs: launches it with Wine's debug logging for
+# 3 minutes (use the features you care about), closes it, and reports unimplemented
+# calls, stubs, missing DLLs and COM objects, and crashes (needs debpak)
+appbridge trace word ~/report.docx
+appbridge trace photoshop --timeout 600 -- --index ~/.cache/debpak/wine/11.8_x86_64.json -o ps.gap.json
 ```
 
 Apps that install from a vendor download (AutoCAD, Inventor, SOLIDWORKS,
@@ -151,6 +157,10 @@ the checked-out submodule when it's present.
 - appbridge can only be as good as the project behind each route. Microsoft 365
   on Proton and Adobe on LinDobe are new and move fast; see their own READMEs
   for what works. The VM routes run real Windows and are the most compatible.
+- `appbridge trace` only works for routes that run on Wine (not WinApps or
+  LinOffice, which run real Windows), and only sees what the traced run did. A
+  launcher that writes Wine's output to its own log file instead of the
+  terminal leaves the trace empty; read that file with `winegap trace --log`.
 - Whether an app is installed inside a Windows VM is known only after WinApps
   setup has scanned the VM. Until then appbridge assumes it is.
 - So far the Qt window has only been tested against a stand-in for Qt. Run

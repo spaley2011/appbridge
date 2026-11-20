@@ -750,5 +750,40 @@ class CadCreativeAudioTests(Base):
                 self.assertIn(b.project, DEFAULT_UPSTREAMS, b.name)
 
 
+class TraceTests(Base):
+    """appbridge trace -> debpak's winegap trace (skipped when debpak isn't installed)."""
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import debpak.winetrace  # noqa: F401
+        except ImportError:
+            self.skipTest("debpak with winegap trace not installed")
+
+    def test_trace_word(self):
+        self.d.tool("ms365", 'echo "0024:fixme:dwmapi:DwmSetWindowAttribute (0, 20, 0, 4) stub" >&2\n'
+                             'echo "WINEDEBUG=$WINEDEBUG" >&2')
+        self.d.office("WINWORD.EXE")
+        code, out = run_cli(self.d, "trace", "word", "--timeout", "1", "--", "--json")
+        self.assertEqual(code, 0, out)
+        report = json.loads(out[out.index("{"):])
+        self.assertEqual(report["target"], "Microsoft Word")
+        self.assertEqual(report["gaps"][0]["symbol"], "DwmSetWindowAttribute")
+        self.assertIn("ms365 kill", self.d.calls.read_text())            # closed afterwards
+        logs = list((self.d.home / ".local/state/appbridge/traces").glob("word-*.log"))
+        self.assertEqual(len(logs), 1)
+        self.assertIn("WINEDEBUG=err+all,fixme+all", logs[0].read_text())
+
+    def test_vm_route_has_nothing_to_trace(self):
+        self.d.winapps("visio")
+        code, out = run_cli(self.d, "trace", "visio")
+        self.assertEqual(code, 1)
+        self.assertIn("not Wine", out)
+
+    def test_not_ready(self):
+        code, out = run_cli(self.d, "trace", "photoshop")
+        self.assertEqual(code, cli.EXIT_NOT_READY)
+
+
 if __name__ == "__main__":
     unittest.main()
