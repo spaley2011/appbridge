@@ -3,7 +3,7 @@
 One launcher for Microsoft 365, Adobe Creative Cloud and other Windows-only
 work apps on Linux, as a command line tool (`appbridge`) and a Qt window with a
 tray menu (`appbridge-gui`). Apps it can run show up in your desktop's app menu,
-KRunner and "Open With", like native apps.
+KRunner and **Open With**, like native apps.
 
 Without it, running Office or Photoshop on Linux means a different project for
 each app, each with its own commands, prefixes and shortcuts. appbridge knows
@@ -92,13 +92,18 @@ notification.
 ## Window and tray
 
 `appbridge-gui` (or `appbridge gui`) lists the apps by suite, with their status
-and a search box. For the selected app you can open it or a file, install or
-repair it, stop it, choose how it runs, add it to the app menu, or make it the
-default for its file types. Drop files onto an app in the list to open them
-there. Steps that ask questions, such as WinApps setup or the
-OneDrive sign-in, open in Konsole (or your desktop's terminal). The tray menu
-launches any ready app. `appbridge-gui --tray` starts the tray only, so you can
-put it in Autostart.
+and a search box. For the selected app, the buttons are **Open**,
+**Open File**, **Install** (**Repair / Update** once it's installed),
+**Stop**, **Add to App Menu** and **Use for Its File Types**, and
+**Run with** picks how it runs. Drop files onto an app in the list to open
+them there. The toolbar has **Add Windows App** for your own programs,
+**Add Ready Apps to Menu**, and **System Check**, which shows the same report
+as `appbridge doctor`.
+
+Steps that ask questions, such as WinApps setup or the OneDrive sign-in, open in
+Konsole (or your desktop's terminal). The tray menu launches any ready app.
+`appbridge-gui --tray` starts the tray only, so you can add it to **Autostart**
+in System Settings.
 
 The window uses Qt 6 through PySide6 or PyQt6. On KDE Plasma, install them from
 your distribution (`python3-pyside6`, `pyside6`, `python3-pyqt6`) rather than
@@ -113,12 +118,13 @@ platform theme.
 Cinnamon and others read these:
 
 - The apps appear in the app menu (Kickoff, Activities), in KRunner and GNOME
-  search, and in Dolphin's and Nautilus' Open With menu for their file types.
+  search, and in Dolphin's and Nautilus' **Open With** menu for their file types.
 - `StartupWMClass` matches the window class Wine gives each app (`winword.exe`),
   so the task manager groups the windows under the right icon and pinned
   launchers work.
-- Right-click actions offer the other ready backends ("Open with Windows VM
-  (WinApps)") and Stop.
+- The right-click menu has an **Open with** action for each other ready backend
+  (for example **Open with Windows VM (WinApps)**), and **Force close**, or
+  **Stop** for a sync service.
 - Icons come from the installed app's own `.exe` (extracted from its icon
   resources) or from the WinApps icon, and otherwise from the icon theme.
   No proprietary icons ship with appbridge.
