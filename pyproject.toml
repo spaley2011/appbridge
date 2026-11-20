@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "appbridge"
+version = "0.1.0"
+description = "One launcher for Microsoft 365, Adobe Creative Cloud and other Windows-only work apps on Linux, with KDE/GNOME desktop integration"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6-Essentials>=6.5"]
+gap = ["debpak @ git+https://github.com/spaley2011/debpak"]
+
+[project.urls]
+Source = "https://github.com/spaley2011/appbridge"
+
+[project.scripts]
+appbridge = "appbridge.cli:main"
+
+[project.gui-scripts]
+appbridge-gui = "appbridge.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
