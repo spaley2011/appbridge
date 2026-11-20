@@ -1,60 +1,60 @@
 [submodule "third_party/office365_flake"]
 	path = third_party/office365_flake
-	url = https://github.com/Tombert/office365_flake.git
+	url = https://github.com/spaley2011/office365_flake.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/Tombert/office365_flake.git
 [submodule "third_party/umu-launcher"]
 	path = third_party/umu-launcher
-	url = https://github.com/Open-Wine-Components/umu-launcher.git
+	url = https://github.com/spaley2011/umu-launcher.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/Open-Wine-Components/umu-launcher.git
 [submodule "third_party/winapps"]
 	path = third_party/winapps
-	url = https://github.com/winapps-org/winapps.git
+	url = https://github.com/spaley2011/winapps.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/winapps-org/winapps.git
 [submodule "third_party/linoffice"]
 	path = third_party/linoffice
-	url = https://github.com/eylenburg/linoffice.git
+	url = https://github.com/spaley2011/linoffice.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/eylenburg/linoffice.git
 [submodule "third_party/LinDobe"]
 	path = third_party/LinDobe
-	url = https://github.com/le-birnes/LinDobe.git
+	url = https://github.com/spaley2011/LinDobe.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/le-birnes/LinDobe.git
 [submodule "third_party/wine-adobe-installers"]
 	path = third_party/wine-adobe-installers
-	url = https://github.com/PhialsBasement/wine-adobe-installers.git
+	url = https://github.com/spaley2011/wine-adobe-installers.git
 	branch = master
 	shallow = true
 	upstream = https://github.com/PhialsBasement/wine-adobe-installers.git
 [submodule "third_party/teams-for-linux"]
 	path = third_party/teams-for-linux
-	url = https://github.com/IsmaelMartinez/teams-for-linux.git
+	url = https://github.com/spaley2011/teams-for-linux.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/IsmaelMartinez/teams-for-linux.git
 [submodule "third_party/prospect-mail"]
 	path = third_party/prospect-mail
-	url = https://github.com/julian-alarcon/prospect-mail.git
+	url = https://github.com/spaley2011/prospect-mail.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/julian-alarcon/prospect-mail.git
 [submodule "third_party/onenote"]
 	path = third_party/onenote
-	url = https://github.com/patrikx3/onenote.git
+	url = https://github.com/spaley2011/onenote.git
 	branch = main
 	shallow = true
 	upstream = https://github.com/patrikx3/onenote.git
 [submodule "third_party/onedrive"]
 	path = third_party/onedrive
-	url = https://github.com/abraunegg/onedrive.git
+	url = https://github.com/spaley2011/onedrive.git
 	branch = master
 	shallow = true
 	upstream = https://github.com/abraunegg/onedrive.git
