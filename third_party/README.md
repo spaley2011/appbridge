@@ -1,8 +1,8 @@
 # third_party
 
 The projects that `appbridge` drives, kept as git submodules pinned to a
-known-good commit. Nothing here is copied into debpak's own (MIT) code; each
-project keeps its own license.
+commit that was tested with it. None of their code is copied into appbridge's
+own (MIT) code, and each project keeps its own license.
 
 ```sh
 git submodule update --init --depth 1 third_party/office365_flake   # just the ones you need
@@ -38,9 +38,12 @@ The CAD, design and audio projects aren't run from these submodules: on first
 install appbridge clones your fork into `~/.local/share/appbridge/projects/`
 (some keep their Wine prefix inside the project folder).
 
-Considered and left out: SketchUp (no installer project found; users report
-2025/2026 crashing under Wine), Revit (cryinkfly's project is still marked "in
-progress"), the older
-`lori28167/autocad-wine-linux` (AutoCAD 2026, superseded by the 2027 project), Corbin Davenport's `creative-cloud-linux` (PlayOnLinux
-script, last changed in 2020, superseded by the Wine patches above) and
-`office365-pol` (its author says it no longer works with current Microsoft 365).
+Considered and left out:
+
+- SketchUp: no installer project found, and users report 2025 and 2026
+  crashing under Wine.
+- Revit: cryinkfly's project is still marked "in progress".
+- `lori28167/autocad-wine-linux`: AutoCAD 2026, replaced by the 2027 project.
+- Corbin Davenport's `creative-cloud-linux`: a PlayOnLinux script last changed
+  in 2020, replaced by the Wine patches above.
+- `office365-pol`: its author says it no longer works with current Microsoft 365.

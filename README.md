@@ -6,8 +6,8 @@ tray menu (`appbridge-gui`). Apps it can run show up in your desktop's app menu,
 KRunner and "Open With", like native apps.
 
 Running Office or Photoshop on Linux takes a different project for each app,
-each with its own commands, prefixes and shortcuts. `appbridge` puts one
-launcher in front of all of them. It knows several ways to run each app, checks
+each with its own commands, prefixes and shortcuts. `appbridge` is one
+launcher for all of them. It knows several ways to run each app, checks
 which ones are set up on your machine, and uses the best one that works:
 
 | Apps | Ways to run them, best first |
@@ -111,15 +111,15 @@ platform theme.
 Cinnamon and others read these:
 
 - The apps appear in the app menu (Kickoff, Activities), in KRunner and GNOME
-  search, and in Dolphin's and Nautilus' **Open With** for their file types.
+  search, and in Dolphin's and Nautilus' Open With menu for their file types.
 - `StartupWMClass` matches the window class Wine gives each app (`winword.exe`),
   so the task manager groups the windows under the right icon and pinned
   launchers work.
 - Right-click actions offer the other ready backends ("Open with Windows VM
-  (WinApps)") and *Stop*.
+  (WinApps)") and Stop.
 - Icons come from the installed app's own `.exe` (extracted from its icon
-  resources) or from the WinApps icon. If neither exists,
-  a theme icon is used. Nothing proprietary ships with appbridge.
+  resources) or from the WinApps icon, and otherwise from the icon theme.
+  No proprietary icons ship with appbridge.
 - Afterwards it runs `kbuildsycoca6` (or 5) so Plasma sees the change right
   away, plus `update-desktop-database` and `xdg-desktop-menu forceupdate`.
 
@@ -154,9 +154,9 @@ the checked-out submodule when it's present.
 
 ## Limits
 
-- appbridge can only be as good as the project behind each route. Microsoft 365
-  on Proton and Adobe on LinDobe are new and move fast; see their own READMEs
-  for what works. The VM routes run real Windows and are the most compatible.
+- Each route works only as well as the project behind it. Microsoft 365 on
+  Proton and Adobe on LinDobe are new and change quickly; their READMEs say
+  what works. The VM routes run real Windows and are the most compatible.
 - `appbridge trace` only works for routes that run on Wine (not WinApps or
   LinOffice, which run real Windows), and only sees what the traced run did. A
   launcher that writes Wine's output to its own log file instead of the

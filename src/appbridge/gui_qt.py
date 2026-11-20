@@ -330,7 +330,7 @@ class Details(QtWidgets.QWidget):
         self.subtitle.setText(f"{a.generic + ' · ' if a.generic else ''}{a.suite}")
         self.icon.setPixmap(self.win.app_icon(res).pixmap(64, 64))
         colour = {READY: "#27ae60", NOT_INSTALLED: "#f67400", NO_BACKEND: "#da4453"}[res.status]
-        text = f'<span style="color:{colour}"><b>{STATUS_TEXT[res.status]}</b></span> — {_link(res.summary)}'
+        text = f'<span style="color:{colour}"><b>{STATUS_TEXT[res.status]}:</b></span> {_link(res.summary)}'
         if res.status != READY:
             hint = b.install_hint(res)
             if hint and hint not in res.summary:
@@ -505,7 +505,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rows.sort(key=lambda r: (order[r.status], SUITES.index(r.app.suite), r.app.name))
         chosen = None
         for r in rows:
-            it = QtWidgets.QTreeWidgetItem([r.app.name, STATUS_TEXT[r.status], r.backend.label if r.backend else "—"])
+            it = QtWidgets.QTreeWidgetItem([r.app.name, STATUS_TEXT[r.status], r.backend.label if r.backend else "none"])
             it.setIcon(0, self.app_icon(r))
             it.setIcon(1, theme_icon(STATUS_ICON[r.status], "dialog-information"))
             it.setToolTip(0, r.summary)

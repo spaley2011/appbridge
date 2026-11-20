@@ -1,6 +1,6 @@
 """Extract an app's own icon from its Windows .exe (RT_GROUP_ICON / RT_ICON
-resources) and save the largest image as a PNG. Pure Python; used so menu entries show the real Word or Photoshop icon from the
-copy you installed."""
+resources) and save the largest image as a PNG, in pure Python. Menu entries
+then show the icon of the Word or Photoshop you installed."""
 from __future__ import annotations
 
 import struct
