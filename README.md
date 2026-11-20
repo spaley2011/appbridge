@@ -1,14 +1,51 @@
 # appbridge
 
-One launcher for Microsoft 365, Adobe Creative Cloud and other Windows-only
-work apps on Linux, as a command line tool (`appbridge`) and a Qt window with a
-tray menu (`appbridge-gui`). Apps it can run show up in your desktop's app menu,
-KRunner and **Open With**, like native apps.
+appbridge is one launcher for Microsoft 365, Adobe Creative Cloud, Autodesk and
+other Windows-only work apps on Linux. Each app needs a different community
+project (Proton for Office, a patched Wine for Adobe, a Windows VM for Visio),
+with its own commands and shortcuts. appbridge knows those projects, checks
+which ones are set up on your machine, and runs each app the best way that
+works. It comes as a command-line tool (`appbridge`) and a Qt window with a tray
+menu (`appbridge-gui`), and it puts the apps in your desktop's app menu, KRunner
+and **Open With** like native apps.
 
-Without it, running Office or Photoshop on Linux means a different project for
-each app, each with its own commands, prefixes and shortcuts. appbridge knows
-several ways to run each app, checks which ones are set up on your machine, and
-uses the best one that works:
+Quick links: [Install](#install) · [How to use](#how-to-use) ·
+[Troubleshooting](#troubleshooting) · [Desktop integration](#desktop-integration)
+
+## Features
+
+- One command, or one click, for Office, Adobe, Autodesk, Affinity, Ableton
+  and others, whichever project runs them on your machine.
+- Tells you what's missing for each app and installs it through the upstream
+  project.
+- Menu entries that group windows correctly in the task manager, use the app's
+  own icon, and offer the other ways to run it on right-click.
+- Your company's own Windows tools, each in its own Wine or Proton prefix.
+- `appbridge trace` runs an app with Wine's logging on and reports what failed
+  (with [debpak](https://github.com/spaley2011/debpak)'s winegap).
+- No dependencies beyond Python; the window needs Qt for Python.
+
+## Example
+
+`appbridge list` shows every app and how it would run. On a machine with
+nothing set up yet:
+
+```console
+$ appbridge list
+
+Microsoft 365
+  ○ word              Microsoft Word                 not set up     -
+  ○ excel             Microsoft Excel                not set up     -
+  ○ powerpoint        Microsoft PowerPoint           not set up     -
+  ...
+
+● ready   ◐ set up, app not installed (appbridge install APP)   ○ nothing set up (appbridge info APP)
+```
+
+`appbridge info word` then lists each way Word can run, best first, and what
+each one needs.
+
+## Supported apps
 
 | Apps | Ways to run them, best first |
 |---|---|
@@ -39,57 +76,86 @@ pip install --user .            # appbridge and appbridge-gui; no dependencies
 appbridge doctor                # what's set up on this machine
 ```
 
-You only need the projects under `third_party/` to build or run one from
-source, so check out the ones you want:
-`git submodule update --init --depth 1 third_party/office365_flake`.
-
 For the window, install Qt for Python from your distribution
 (`python3-pyside6`, `pyside6` or `python3-pyqt6`), or `pip install --user '.[gui]'`.
 appbridge needs Python 3.10 or newer.
 
-## Command line
+You only need the projects under `third_party/` to build or run one from
+source, so check out the ones you want:
+`git submodule update --init --depth 1 third_party/office365_flake`.
+
+## How to use
+
+### See what can run
 
 ```sh
 appbridge list                       # every app, its status, and how it would run
 appbridge info word                  # all the ways Word can run here and what each one is missing
+appbridge doctor                     # what's installed: Nix, Flatpak, FreeRDP, KVM, kbuildsycoca, ...
+```
+
+### Install an app
+
+```sh
 appbridge install word               # runs the backend's installer (here: ms365 install)
-appbridge launch word ~/report.docx  # open files; `--backend winapps` to force a route
-appbridge stop photoshop             # close Adobe apps cleanly (adobewine off)
 appbridge install autocad --from ~/Downloads/Autodesk_AutoCAD_2027_2_English_en-US_setup_webinstall.exe
 appbridge install solidworks --from "$HOME/Downloads/SOLIDWORKS 2026 SP03.2"   # a folder
+```
+
+appbridge shows the commands and asks before running them. Apps that install
+from a vendor download (AutoCAD, Inventor, SOLIDWORKS, Ableton's `.run`) take
+the file with `--from`; without it, `appbridge install APP` tells you what to
+download. On first install, appbridge clones the CAD, design or audio project
+from your fork into `~/.local/share/appbridge/projects/`.
+
+### Open an app or a file
+
+```sh
+appbridge launch word ~/report.docx  # open files; `--backend winapps` to force a route
 appbridge launch yabridge            # re-sync Windows audio plugins after installing new ones
-appbridge prefer word winapps        # always use the VM for Word (`auto` to undo)
+appbridge stop photoshop             # close Adobe apps cleanly (adobewine off)
+```
+
+### Choose how an app runs
+
+```sh
+appbridge prefer word winapps        # always use the VM for Word
+appbridge prefer word auto           # back to the best route that works
+```
+
+### Add apps to the menu
+
+```sh
 appbridge integrate                  # add every ready app to the app menu
 appbridge integrate --default-handlers word excel   # ...and make them the default for .docx/.xlsx
 appbridge integrate --remove         # take all of appbridge's entries out again
-appbridge doctor                     # what's installed: Nix, Flatpak, FreeRDP, KVM, kbuildsycoca, ...
+```
 
-# your own Windows app
+### Add your own Windows app
+
+```sh
 appbridge add expenses --name "Expense Reports" --exe 'C:\Program Files\Acme\Expenses.exe' \
     --installer ~/Downloads/AcmeSetup.exe --runner umu --mime application/x-acme-expense
 appbridge install expenses           # runs the installer in its own prefix
 appbridge run expenses regedit       # any program in that prefix
+```
 
-# which Windows functions is Wine missing for an installed app? (needs debpak's winegap)
+### Find out why a Windows app misbehaves
+
+Both commands need [debpak](https://github.com/spaley2011/debpak) installed.
+
+```sh
+# which Windows functions is Wine missing for an installed app?
 appbridge gap photoshop --index ~/.cache/debpak/wine/11.8_x86_64.json
 
-# what goes wrong when it runs: launches it with Wine's debug logging for
-# 3 minutes (use the features you care about), closes it, and reports unimplemented
-# calls, stubs, missing DLLs and COM objects, and crashes (needs debpak)
+# what goes wrong when it runs: launches it with Wine's debug logging for 3 minutes
+# (use the features you care about), closes it, and reports unimplemented calls,
+# stubs, missing DLLs and COM objects, and crashes
 appbridge trace word ~/report.docx
 appbridge trace photoshop --timeout 600 -- --index ~/.cache/debpak/wine/11.8_x86_64.json -o ps.gap.json
 ```
 
-Apps that install from a vendor download (AutoCAD, Inventor, SOLIDWORKS,
-Ableton's `.run`) take the file with `--from`; without it, `appbridge install
-APP` tells you what to download. On first install, appbridge clones the CAD,
-design or audio project from your fork into `~/.local/share/appbridge/projects/`.
-
-If an app isn't ready, `launch` says what's missing and exits with status 3. If
-you started the app from the menu, that message appears as a desktop
-notification.
-
-## Window and tray
+### Use the window and tray
 
 `appbridge-gui` (or `appbridge gui`) lists the apps by suite, with their status
 and a search box. For the selected app, the buttons are **Open**,
@@ -105,11 +171,37 @@ Konsole (or your desktop's terminal). The tray menu launches any ready app.
 `appbridge-gui --tray` starts the tray only, so you can add it to **Autostart**
 in System Settings.
 
-The window uses Qt 6 through PySide6 or PyQt6. On KDE Plasma, install them from
-your distribution (`python3-pyside6`, `pyside6`, `python3-pyqt6`) rather than
-pip. The distro build uses the system Qt, so you get the Breeze style and your
-Plasma colours and fonts. The pip wheels bring their own Qt without Plasma's
-platform theme.
+Every command has `--help` with the full list of options.
+
+## Troubleshooting
+
+### `launch` says the app isn't ready and exits with status 3
+
+Nothing that can run the app is set up yet, or the app isn't installed in it.
+The message says which; `appbridge info APP` lists every route and what each
+needs. If you started the app from the menu, the same message appears as a
+desktop notification.
+
+### An app doesn't show up in the menu
+
+`appbridge integrate` skips apps that aren't ready, apps whose Flatpak or
+native package adds its own entry (Teams, Prospect Mail), and apps that already
+have an entry with the same name, for example from `adobewine launchers` or the
+flake's `shortcuts`. Pass `--force` to add an appbridge entry anyway.
+
+### The window doesn't match my Plasma theme
+
+The pip wheels of PySide6 and PyQt6 bring their own Qt without Plasma's
+platform theme. Install Qt for Python from your distribution instead
+(`python3-pyside6`, `pyside6`, `python3-pyqt6`); it uses the system Qt, so you
+get the Breeze style and your Plasma colours and fonts.
+
+### `appbridge trace` reports nothing
+
+Some launchers write Wine's output to their own log file instead of the
+terminal, which leaves the trace empty. Read that file with
+`winegap trace --log`. Routes that run real Windows (WinApps, LinOffice) can't
+be traced at all.
 
 ## Desktop integration
 
@@ -131,11 +223,6 @@ Cinnamon and others read these:
 - Afterwards it runs `kbuildsycoca6` (or 5) so Plasma sees the change right
   away, plus `update-desktop-database` and `xdg-desktop-menu forceupdate`.
 
-appbridge skips apps that install their own entry (Teams, Prospect Mail and
-other Flatpak or native packages), and apps that already have an entry with the
-same name, for example from `adobewine launchers` or the flake's `shortcuts`.
-Pass `--force` to add an appbridge entry anyway.
-
 ## Configuration
 
 - `~/.config/appbridge/config.json`: preferred backend per app.
@@ -148,7 +235,8 @@ Pass `--force` to add an appbridge entry anyway.
 
 `third_party/` holds each upstream project as a submodule pinned to a tested
 commit. Their licenses are GPL, LGPL, AGPL and MIT, and none of their code is
-copied into appbridge.
+copied into appbridge. [third_party/README.md](third_party/README.md) lists
+them, with what appbridge uses each one for.
 
 ```sh
 scripts/fork-upstreams.sh            # fork them all into your GitHub account (needs `gh auth login`)
@@ -165,10 +253,8 @@ the checked-out submodule when it's present.
 - Each route works only as well as the project behind it. Microsoft 365 on
   Proton and Adobe on LinDobe are new and change quickly; their READMEs say
   what works. The VM routes run real Windows and are the most compatible.
-- `appbridge trace` only works for routes that run on Wine (not WinApps or
-  LinOffice, which run real Windows), and only sees what the traced run did. A
-  launcher that writes Wine's output to its own log file instead of the
-  terminal leaves the trace empty; read that file with `winegap trace --log`.
+- `appbridge trace` only works for routes that run on Wine, and only sees what
+  the traced run did.
 - appbridge can't tell which apps a Windows VM has until WinApps setup has
   scanned it, and until then it assumes the app is there.
 - The window's tests have only run against a stand-in for Qt so far. With
