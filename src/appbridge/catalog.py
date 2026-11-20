@@ -15,27 +15,51 @@ from .host import Host
 
 @dataclass(frozen=True)
 class Route:
-    backend: str          # name in backends.BACKENDS
-    target: str           # backend-specific: app key, Flatpak ID, binary, unit, or "a|b|c" candidates
-    exe: str = ""         # Windows executable, relative to the backend's install root (for checks and icons)
-    remote: str = ""      # Flatpak remote that carries the app ("" = not on a remote, install it yourself)
-    args: tuple[str, ...] = ()   # extra arguments before any files (native tools)
+    """One way to run an app: a backend and what that backend needs to find the app.
+
+    Attributes:
+        backend: The backend's name (a key of backends.BACKENDS).
+        target: What the backend launches: an app key, a Flatpak ID, a program,
+            a systemd unit, or "a|b|c" when any of several names will do.
+        exe: The Windows .exe, relative to the backend's install folder, used to
+            check that the app is installed and to extract its icon.
+        remote: The Flatpak remote that has the app, or "" if you install it
+            yourself.
+        args: Arguments that go before any files (for native tools).
+    """
+    backend: str
+    target: str
+    exe: str = ""
+    remote: str = ""
+    args: tuple[str, ...] = ()
 
 
 @dataclass
 class App:
+    """An app appbridge can run, with its menu details and its routes, best first.
+
+    Attributes:
+        suite: The group it's listed under (one of SUITES).
+        generic: A generic name, such as "Word Processor".
+        icon: A theme icon name, used until appbridge extracts the real icon.
+        mime: File types it opens, for Open With and default handlers.
+        kind: "app"; "service" for sync daemons that start and stop; "tool"
+            for one-shot helpers such as yabridge.
+        note: A caveat shown by `info` and the window (experimental, setup steps).
+        custom: For apps you add: exe, prefix, runner, env and installer.
+    """
     id: str
     name: str
     suite: str
     generic: str = ""
-    icon: str = "application-x-executable"   # freedesktop icon name, used until a real icon is extracted
+    icon: str = "application-x-executable"
     categories: tuple[str, ...] = ()
     mime: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
     routes: tuple[Route, ...] = ()
-    kind: str = "app"     # "app"; "service" for sync daemons that start and stop; "tool" for one-shot helpers
-    note: str = ""        # caveat shown in `info` and the window (experimental, setup guide, ...)
-    custom: dict = field(default_factory=dict)   # custom Wine apps: exe, prefix, runner, env, installer
+    kind: str = "app"
+    note: str = ""
+    custom: dict = field(default_factory=dict)
 
     @property
     def wm_class(self) -> str:
@@ -214,6 +238,7 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 def valid_id(app_id: str) -> bool:
+    """Return True if app_id can be used for a custom app: lower-case letters, digits, dots, underscores and dashes, not starting with punctuation."""
     return bool(_ID_RE.match(app_id))
 
 
@@ -228,6 +253,11 @@ class Config:
         self._load()
 
     def _read(self, name: str) -> dict:
+        """Read a JSON file from the config folder; a missing file counts as empty.
+
+        Raises:
+            ValueError: The file exists but isn't valid JSON.
+        """
         p = self.dir / name
         try:
             return json.loads(p.read_text())
@@ -241,15 +271,18 @@ class Config:
         self.custom = [a for a in self._read("apps.json").get("apps", []) if valid_id(a.get("id", ""))]
 
     def save(self) -> None:
+        """Write config.json and apps.json."""
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "config.json").write_text(json.dumps({"prefer": self.prefer}, indent=2) + "\n")
         (self.dir / "apps.json").write_text(json.dumps({"apps": self.custom}, indent=2) + "\n")
 
     def default_prefix(self, app_id: str) -> Path:
+        """Return the default Wine prefix for a custom app: ~/.local/share/appbridge/prefixes/ID."""
         return self.host.data_home / "appbridge" / "prefixes" / app_id
 
 
 def custom_app(d: dict) -> App:
+    """Build an App from an apps.json entry; it runs through the wine backend."""
     return App(
         id=d["id"], name=d.get("name") or d["id"], suite="Custom", generic=d.get("generic", "Windows Application"),
         icon=d.get("icon", "wine"), categories=tuple(d.get("categories", ["Office"])),
@@ -258,6 +291,7 @@ def custom_app(d: dict) -> App:
 
 
 def all_apps(config: Config) -> list[App]:
+    """Return the built-in apps plus your custom ones; a custom app can't reuse a built-in ID."""
     apps = list(BUILTIN)
     taken = {a.id for a in apps}
     apps += [custom_app(d) for d in config.custom if d["id"] not in taken]
@@ -265,10 +299,12 @@ def all_apps(config: Config) -> list[App]:
 
 
 def find(apps: list[App], app_id: str) -> App | None:
+    """Return the app with this ID, or None."""
     return next((a for a in apps if a.id == app_id), None)
 
 
 def to_json(app: App) -> dict:
+    """Return an app as a JSON-ready dict, for `appbridge list --json`."""
     d = asdict(app)
     d["routes"] = [asdict(r) for r in app.routes]
     return d

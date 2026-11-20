@@ -20,6 +20,7 @@ Everything is also available from the command line: appbridge --help
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Open the AppBridge window; print how to install Qt for Python if it's missing."""
     try:
         from . import gui_qt
     except ImportError as e:

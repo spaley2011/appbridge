@@ -7,10 +7,16 @@ import struct
 
 
 class PeError(Exception):
+    """A file that isn't a readable PE image."""
     pass
 
 
 class _Image:
+    """A PE file's headers, data directories and section table.
+
+    Raises:
+        PeError: The file has no PE signature.
+    """
     def __init__(self, m):
         self.m = m
         pe = struct.unpack_from("<I", m, 0x3C)[0]
@@ -42,6 +48,11 @@ class _Image:
             self.sections.append((va, max(vsize, rawsize), rawptr, rawsize))
 
     def off(self, rva: int) -> int:
+        """Return the file offset of an RVA.
+
+        Raises:
+            PeError: The RVA is in no section.
+        """
         for va, size, rawptr, rawsize in self.sections:
             if va <= rva < va + size:
                 delta = rva - va

@@ -34,7 +34,7 @@ def _escape_value(v: str) -> str:
 
 
 def appbridge_argv() -> list[str]:
-    """How a menu entry should call us: the installed script if there is one, else python -m."""
+    """Return how a menu entry should call appbridge: the installed script if there is one, else this Python with -m appbridge."""
     exe = shutil.which("appbridge")
     if exe:
         return [os.path.realpath(exe)]
@@ -42,11 +42,13 @@ def appbridge_argv() -> list[str]:
 
 
 def _exec(argv: list[str]) -> str:
+    """Join argv into an Exec= value, quoting each argument per the Desktop Entry spec."""
     return _escape_value(" ".join(_exec_quote(a) for a in argv))
 
 
 @dataclass
 class Result:
+    """What an integrate or remove run did: entries written and removed, apps skipped (with why), default handlers set, caches refreshed."""
     written: list[Path] = field(default_factory=list)
     removed: list[Path] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)
@@ -55,6 +57,11 @@ class Result:
 
 
 class Integrator:
+    """Writes and removes appbridge's menu entries in ~/.local/share/applications.
+
+    Every entry carries an X-AppBridge-Id key with the app's ID, so `remove`
+    deletes only appbridge's own entries.
+    """
     def __init__(self, bridge: Bridge, dry_run: bool = False):
         self.b = bridge
         self.host = bridge.host
@@ -63,14 +70,16 @@ class Integrator:
         self.icon_dir = self.host.data_home / "appbridge/icons"
 
     def desktop_path(self, app_id: str) -> Path:
+        """Return the .desktop file appbridge writes for an app."""
         return self.apps_dir / f"{PREFIX}{app_id}.desktop"
 
     def integrated(self, app_id: str) -> bool:
+        """Return True if the app has an appbridge menu entry."""
         return self.desktop_path(app_id).exists()
 
     # ------------------------------------------------------------------ icons
     def icon_for(self, res: Resolved) -> str:
-        """Best icon: the app's own (from its .exe or the project), else a theme icon."""
+        """Return the best icon: the app's own (extracted from its .exe, or shipped by the project), else a theme icon name."""
         s = res.state
         if s:
             b, r = s.backend, s.route
@@ -98,6 +107,13 @@ class Integrator:
 
     # ------------------------------------------------------------------ entries
     def entry(self, res: Resolved, icon: str) -> str:
+        """Return the .desktop entry for an app.
+
+        Exec runs `appbridge launch`, so the entry keeps working when the route
+        changes. StartupWMClass is the Wine window class, so the task manager groups
+        the windows under this entry. Right-click actions open the app through each
+        other usable route, and stop it when its backend can.
+        """
         a = res.app
         me = appbridge_argv()
         files = "%F" if a.mime else ""
@@ -142,6 +158,7 @@ class Integrator:
         return "\n".join(lines) + "\n"
 
     def self_entry(self) -> str:
+        """Return the menu entry for the AppBridge window itself."""
         me = appbridge_argv()
         gui = shutil.which("appbridge-gui")
         argv = [os.path.realpath(gui)] if gui else me + ["gui"]
@@ -157,9 +174,13 @@ class Integrator:
         ]) + "\n"
 
     def _foreign_duplicate(self, name: str) -> Path | None:
-        """Another (non-appbridge) menu entry for the same app, e.g. one LinDobe, the flake or an
-        installer script made: same name, or the name plus a version ("AutoCAD 2027"). Looks in
-        subfolders too (Wine's own entries live in applications/wine/Programs/...)."""
+        """Find another program's menu entry for the same app, or None.
+
+        LinDobe, the flake or an installer script may have made one. It counts as
+        the same app when the name matches, or the name plus a version ("AutoCAD
+        2027"). Subfolders are searched too, since Wine puts its own entries in
+        applications/wine/Programs/.
+        """
         if not self.apps_dir.is_dir():
             return None
         want = name.lower()
@@ -182,6 +203,19 @@ class Integrator:
 
     def add(self, app_ids: list[str] | None = None, force: bool = False, include_self: bool = True,
             set_default: bool = False) -> Result:
+        """Add menu entries for apps, then refresh the desktop's caches.
+
+        Without force, it skips apps that aren't ready, helper tools, apps whose
+        Flatpak or native package installs its own entry, and apps that already
+        have an entry with the same name from elsewhere.
+
+        Args:
+            app_ids: The apps to add; None means every app (unready ones skipped
+                without a message).
+            force: Add the entries anyway.
+            include_self: Also add the entry for the AppBridge window.
+            set_default: Make each app the default for its file types (xdg-mime).
+        """
         out = Result()
         targets = [self.b.app(i) for i in app_ids] if app_ids else self.b.apps
         for a in targets:
@@ -222,6 +256,10 @@ class Integrator:
         return out
 
     def remove(self, app_ids: list[str] | None = None, include_self: bool = False) -> Result:
+        """Remove appbridge's menu entries (all of them, or those for app_ids) and their icons.
+
+        include_self also removes the entry for the AppBridge window.
+        """
         out = Result()
         if not self.apps_dir.is_dir():
             return out
@@ -250,6 +288,7 @@ class Integrator:
 
     # ------------------------------------------------------------------ system hooks
     def _run(self, argv: list[str]) -> bool:
+        """Run a cache-refresh command quietly; return True if it worked (always True in a dry run)."""
         if self.dry:
             return True
         try:
@@ -259,6 +298,7 @@ class Integrator:
             return False
 
     def _set_default(self, desktop_name: str, mimes: tuple[str, ...]) -> list[str]:
+        """Make a .desktop file the default for each MIME type with xdg-mime; return the types it set."""
         xm = self.host.which("xdg-mime")
         done = []
         for m in mimes:
@@ -285,4 +325,5 @@ class Integrator:
 
 
 def shell_join(argv: list[str]) -> str:
+    """Join argv for display in a shell."""
     return shlex.join(argv)

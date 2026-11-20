@@ -32,6 +32,7 @@ GENERIC_ICON = "application-x-executable"
 
 
 def theme_icon(*names: str) -> QtGui.QIcon:
+    """Return the first of names the icon theme has (Breeze on KDE), or the last name as a fallback."""
     for n in names:
         if n and QtGui.QIcon.hasThemeIcon(n):
             return QtGui.QIcon.fromTheme(n)
@@ -39,7 +40,7 @@ def theme_icon(*names: str) -> QtGui.QIcon:
 
 
 def _link(url_text: str) -> str:
-    """Escape for a QLabel and turn URLs into links."""
+    """Escape text for a QLabel and turn URLs in it into links."""
     esc = html.escape(url_text)
     return re.sub(r"(https?://[^\s;,)]+)", r'<a href="\1">\1</a>', esc)
 
@@ -48,7 +49,10 @@ def _link(url_text: str) -> str:
 
 class ProcessDialog(QtWidgets.QDialog):
     """Runs install commands one after another and shows their output.
-    Commands that ask questions open in the desktop's terminal (Konsole on KDE)."""
+
+    Commands that ask questions open in the desktop's terminal (Konsole on KDE)
+    and the dialog waits for them. A failed command stops the rest.
+    """
 
     def __init__(self, parent, bridge: Bridge, title: str, commands: list[Command]):
         super().__init__(parent)
@@ -213,6 +217,7 @@ class AddAppDialog(QtWidgets.QDialog):
 
 
 class DoctorDialog(QtWidgets.QDialog):
+    """Shows the system check (`appbridge doctor`) as a list."""
     def __init__(self, parent, bridge: Bridge):
         super().__init__(parent)
         self.setWindowTitle("System Check")
@@ -238,6 +243,7 @@ class DoctorDialog(QtWidgets.QDialog):
 # --------------------------------------------------------------------------- detail pane
 
 class Details(QtWidgets.QWidget):
+    """The right-hand pane: the selected app's status, its routes, and the buttons that act on it."""
     def __init__(self, win: "MainWindow"):
         super().__init__()
         self.win = win
@@ -312,6 +318,7 @@ class Details(QtWidgets.QWidget):
         self.show_app(None)
 
     def show_app(self, res: Resolved | None):
+        """Show an app (or the welcome text when res is None) and enable the buttons that apply to it."""
         self.res = res
         for w in (self.open_btn, self.file_btn, self.install_btn, self.stop_btn, self.menu_btn,
                   self.default_btn, self.route, self.remove_btn):
@@ -375,6 +382,7 @@ class Details(QtWidgets.QWidget):
         self.routes_box.setText("<p>Ways to run it, best first:</p><ul>" + "".join(rows) + "</ul>")
 
     def _route_chosen(self, index):
+        """Save the backend picked in Run with as the app's preference (or clear it for automatic), and refresh."""
         if not self.res:
             return
         name = self.route.itemData(index)
@@ -390,6 +398,11 @@ class Details(QtWidgets.QWidget):
 # --------------------------------------------------------------------------- main window
 
 class MainWindow(QtWidgets.QMainWindow):
+    """The AppBridge window: app list by suite, the details pane, a toolbar and a tray icon.
+
+    In tray mode (`--tray`) only the tray icon starts, and closing the window
+    hides it instead of quitting.
+    """
     def __init__(self, bridge: Bridge, tray_mode: bool = False):
         super().__init__()
         self.bridge = bridge
@@ -466,6 +479,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ------------------------------------------------------------------ data
     def app_icon(self, res: Resolved) -> QtGui.QIcon:
+        """Return the app's own icon if appbridge extracted one, else its theme icon."""
         try:
             ic = self.integrator.icon_for(res) if res.status == READY else res.app.icon
         except OSError:
@@ -475,6 +489,11 @@ class MainWindow(QtWidgets.QMainWindow):
         return theme_icon(ic, res.app.icon, GENERIC_ICON)
 
     def refresh(self, force: bool = False, keep: str | None = None):
+        """Re-read the config and re-check every app, then redraw the list and tray menu.
+
+        Calls within 2 seconds of the last one are skipped unless force is set,
+        since checking every app runs PATH and file lookups.
+        """
         now = time.monotonic()
         if not force and now - self._last_refresh < 2:
             return
@@ -489,6 +508,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_tray_menu()
 
     def _fill(self, select: str | None = None):
+        """Fill the app list for the selected suite and the search text, keeping select (an app ID) selected."""
         if select is None and self.tree.currentItem():
             select = self.tree.currentItem().data(0, ROLE)
         key = self.suites.currentItem().data(ROLE) if self.suites.currentItem() else "*"
@@ -533,6 +553,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(msg, 6000)
 
     def launch(self, res: Resolved | None, files: list[str] | None = None):
+        """Start an app in the background, logging to its log file; helper tools run in a ProcessDialog."""
         if not res:
             return
         if res.status != READY:
@@ -555,6 +576,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.hide()
 
     def open_files(self, res: Resolved | None):
+        """Ask for files and open them in the app."""
         if not res:
             return
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, f"Open in {res.app.name}", str(Path.home()))
@@ -562,6 +584,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.launch(res, files)
 
     def install(self, res: Resolved | None):
+        """Install or repair an app, asking for the vendor's download first if it needs one."""
         if not res:
             return
         source = None
@@ -590,6 +613,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.refresh(force=True, keep=res.app.id)
 
     def stop(self, res: Resolved | None):
+        """Run the app's stop command and refresh shortly after."""
         c = self.bridge.stop_command(res) if res else None
         if c:
             self.bridge.spawn(c)
@@ -597,6 +621,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QTimer.singleShot(1500, lambda: self.refresh(force=True))
 
     def toggle_menu(self, res: Resolved | None):
+        """Add the app to the menu, or remove it if it's already there."""
         if not res:
             return
         if self.integrator.integrated(res.app.id):
@@ -614,6 +639,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.details.show_app(self.results.get(res.app.id))
 
     def make_default(self, res: Resolved | None):
+        """Make the app the default for its file types."""
         if not res:
             return
         r = self.integrator.add([res.app.id], include_self=False, set_default=True, force=True)
@@ -624,6 +650,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.details.show_app(self.results.get(res.app.id))
 
     def integrate_all(self):
+        """Add every ready app to the menu."""
         r = self.integrator.add(None, include_self=True)
         n = len([p for p in r.written if p.name.startswith("appbridge-")])
         msg = f"Added {n} app{'s' if n != 1 else ''} to the app menu."
@@ -643,6 +670,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.install(res)
 
     def remove_custom(self, res: Resolved | None):
+        """Remove one of your own apps, after asking."""
         if not res or res.app.suite != "Custom":
             return
         if QtWidgets.QMessageBox.question(self, "Remove App",
@@ -665,6 +693,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return None
 
     def _context_menu(self, pos):
+        """Show the right-click menu for an app in the list."""
         it = self.tree.itemAt(pos)
         res = self.results.get(it.data(0, ROLE)) if it else None
         if not res:
@@ -681,6 +710,7 @@ class MainWindow(QtWidgets.QMainWindow):
         m.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _build_tray_menu(self):
+        """Rebuild the tray menu: the ready apps by suite, then Show AppBridge and Quit."""
         if not self.tray:
             return
         menu = QtWidgets.QMenu(self)
@@ -734,6 +764,7 @@ class MainWindow(QtWidgets.QMainWindow):
             e.acceptProposedAction()
 
     def dropEvent(self, e):
+        """Open dropped files in the app they were dropped on."""
         files = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         pos = self.tree.viewport().mapFrom(self, e.position().toPoint())
         it = self.tree.itemAt(pos) or self.tree.currentItem()
@@ -746,6 +777,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 def run(argv: list[str]) -> int:
+    """Start the Qt application and show the window (or only the tray icon with --tray).
+
+    The desktop file name ties the window to io.github.spaley2011.AppBridge.desktop,
+    which KDE's task manager and Wayland compositors use for its icon and grouping.
+    """
     tray = "--tray" in argv
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(["appbridge-gui"])
     app.setApplicationName("appbridge")

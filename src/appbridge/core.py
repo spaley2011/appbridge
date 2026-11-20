@@ -14,6 +14,7 @@ READY, NOT_INSTALLED, NO_BACKEND = "ready", "not installed", "not set up"
 
 @dataclass
 class RouteState:
+    """One route of an app on this machine: whether its backend is ready, and whether the app is installed there (None if unknown)."""
     route: Route
     backend: Backend
     check: Check
@@ -21,14 +22,23 @@ class RouteState:
 
     @property
     def usable(self) -> bool:
+        """True if the backend is ready and the app isn't known to be missing."""
         return self.check.ok and self.installed is not False
 
 
 @dataclass
 class Resolved:
+    """The route appbridge will use for an app, and why.
+
+    Attributes:
+        status: READY, NOT_INSTALLED (the backend works but the app isn't in
+            it yet) or NO_BACKEND (nothing is set up).
+        state: The chosen route, or None when nothing is set up.
+        routes: Every route's state, best first, for `info` and the window.
+    """
     app: App
     status: str
-    state: RouteState | None       # the route that will be used (or set up, if not installed)
+    state: RouteState | None
     routes: list[RouteState]
 
     @property
@@ -37,6 +47,7 @@ class Resolved:
 
     @property
     def summary(self) -> str:
+        """Return one line for the user: which backend runs the app, or what's missing."""
         if self.status == READY:
             return f"via {self.state.backend.label}"
         if self.status == NOT_INSTALLED:
@@ -54,16 +65,23 @@ class Bridge:
         self.apps = all_apps(self.config)
 
     def reload(self) -> None:
+        """Read the config again, after it changed on disk or through add_custom."""
         self.config = Config(self.host)
         self.apps = all_apps(self.config)
 
     def app(self, app_id: str) -> App:
+        """Return the app with this ID.
+
+        Raises:
+            KeyError: No such app.
+        """
         a = find(self.apps, app_id)
         if not a:
             raise KeyError(f"unknown app '{app_id}' (see `appbridge list --all`)")
         return a
 
     def route_states(self, app: App) -> list[RouteState]:
+        """Check every route of an app on this machine, best first."""
         out = []
         for r in app.routes:
             b = BACKENDS[r.backend]
@@ -72,6 +90,17 @@ class Bridge:
         return out
 
     def resolve(self, app: App, backend: str | None = None) -> Resolved:
+        """Choose the route to run an app through.
+
+        The order of preference:
+            1. backend, when given (`--backend`), even if it can't launch the app yet.
+            2. The saved preference (`appbridge prefer`), if it can launch the app.
+            3. The first route that's ready with the app installed.
+            4. The first ready route that can install the app, then any ready route.
+
+        Raises:
+            KeyError: backend isn't one of the app's routes.
+        """
         states = self.route_states(app)
         want = backend or self.config.prefer.get(app.id)
         if want:
@@ -99,7 +128,12 @@ class Bridge:
                    mime: list[str] | None = None, categories: list[str] | None = None,
                    env: dict[str, str] | None = None, proton: str = "", installer: str = "",
                    generic: str = "") -> App:
-        """Add (or replace) one of your own Windows apps. Raises ValueError on bad input."""
+        """Add (or replace) one of your own Windows apps and save it to apps.json.
+
+        Raises:
+            ValueError: An invalid ID, the ID of a built-in app, a runner other than
+                wine or umu, or no exe.
+        """
         from .catalog import BUILTIN, valid_id
         if not valid_id(app_id):
             raise ValueError("ID must be lower-case letters, digits, '.', '_' or '-'")
@@ -121,6 +155,11 @@ class Bridge:
         return self.app(app_id)
 
     def remove_custom(self, app_id: str) -> None:
+        """Remove one of your own apps and its saved preference.
+
+        Raises:
+            ValueError: app_id isn't a custom app.
+        """
         if not any(x["id"] == app_id for x in self.config.custom):
             raise ValueError(f"'{app_id}' isn't one of your custom apps")
         self.config.custom = [x for x in self.config.custom if x["id"] != app_id]
@@ -130,10 +169,12 @@ class Bridge:
 
     # ------------------------------------------------------------------ commands
     def launch_commands(self, res: Resolved, files: list[str]) -> list[Command]:
+        """Return the commands that open the app; local file paths become absolute, URIs pass through."""
         files = [str(Path(f).expanduser().resolve()) if not _is_uri(f) else f for f in files]
         return res.backend.launch(res.app, res.state.route, files, self.host)
 
     def install_commands(self, res: Resolved, source: str | None = None) -> list[Command]:
+        """Return the commands that install the app through its chosen route, or [] if there are none."""
         if not res.state:
             return []
         if source:
@@ -141,20 +182,22 @@ class Bridge:
         return res.backend.install(res.app, res.state.route, self.host, source=source)
 
     def can_install(self, res: Resolved) -> bool:
+        """Return True if appbridge can run an installer for the app on its chosen route."""
         return bool(res.state) and res.state.check.ok and res.backend.can_install(res.app, res.state.route, self.host)
 
     def source_needed(self, res: Resolved) -> tuple[str, str]:
-        """("file" or "dir", what) when installing needs a file you download from the vendor; ("", "") if not."""
+        """Return ("file" or "dir", what) when installing needs a vendor download; ("", "") if not."""
         if not res.state:
             return "", ""
         what = res.backend.source_needed(res.app, res.state.route, self.host)
         return (res.backend.source_kind, what) if what else ("", "")
 
     def stop_command(self, res: Resolved) -> Command | None:
+        """Return the command that closes the app, or None."""
         return res.backend.stop(res.app, res.state.route, self.host) if res.state else None
 
     def install_hint(self, res: Resolved) -> str:
-        """What to do by hand when there's no command appbridge can run."""
+        """Return what to do by hand when appbridge has no command to run for the app."""
         if not res.state:   # nothing set up: list every way to get it, best first
             return "; or ".join(f"{s.backend.label}: {s.check.detail}" for s in res.routes)
         s = res.state
@@ -170,11 +213,13 @@ class Bridge:
         return b.hint(self.host)
 
     def env_for(self, cmd: Command) -> dict[str, str]:
+        """Return the environment to run cmd in: ours plus the command's own variables."""
         env = dict(self.host.env)
         env.update(cmd.env)
         return env
 
     def log_path(self, app_id: str) -> Path:
+        """Return the log file for an app started from the menu or window (~/.local/state/appbridge/logs/ID.log)."""
         d = self.host.state_home / "appbridge/logs"
         d.mkdir(parents=True, exist_ok=True)
         return d / f"{app_id}.log"
@@ -190,7 +235,14 @@ class Bridge:
                 out.close()
 
     def terminal(self, cmd: Command) -> Command:
-        """Wrap an interactive command in the desktop's terminal (Konsole on KDE)."""
+        """Wrap an interactive command in a terminal window, Konsole first (GNOME Terminal first on GNOME).
+
+        The terminal stays in the foreground until the command ends, so the next
+        install step waits for it.
+
+        Raises:
+            RuntimeError: No known terminal emulator is installed.
+        """
         import shlex
         script = cmd.shell() + '; echo; read -r -p "Done (exit $?). Press Enter to close. " _'
         inner = ["bash", "-c", script]
@@ -217,4 +269,5 @@ class Bridge:
 
 
 def _is_uri(s: str) -> bool:
+    """Return True for a URI (https://, msteams:, mailto:) rather than a file path."""
     return "://" in s or s.startswith(("msteams:", "mailto:"))

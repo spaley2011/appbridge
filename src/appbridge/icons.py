@@ -29,7 +29,7 @@ def _walk(img: _Image, m, base: int, rva: int, depth: int, path: tuple, out: lis
 
 
 def icon_images(exe: str | Path) -> list[tuple[int, int, bytes]]:
-    """(width, bit_count, raw RT_ICON bytes) for the first icon group in the file."""
+    """Return (width, bit count, raw RT_ICON bytes) for each image of the file's first icon group."""
     data = Path(exe).read_bytes()
     if data[:2] != b"MZ":
         raise PeError(f"{exe}: not a PE file")
@@ -109,7 +109,7 @@ def dib_to_png(dib: bytes) -> bytes:
 
 
 def extract_png(exe: str | Path) -> bytes | None:
-    """The best icon in the .exe as PNG bytes, or None if it has none."""
+    """Return the largest icon in the .exe as PNG bytes, or None if it has none."""
     imgs = icon_images(exe)
     if not imgs:
         return None

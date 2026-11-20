@@ -36,6 +36,7 @@ DEFAULT_UPSTREAMS = {
 
 
 def _find_checkout() -> Path | None:
+    """Return the appbridge git checkout this module runs from (it has .gitmodules and third_party/), or None."""
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / ".gitmodules").is_file() and (parent / "third_party").is_dir():
@@ -72,36 +73,38 @@ class Host:
         return self._xdg("XDG_STATE_HOME", ".local/state")
 
     def expand(self, p: str) -> Path:
+        """Expand a leading ~/ against this host's HOME."""
         if p.startswith("~/"):
             return self.home / p[2:]
         return Path(p)
 
     # ------------------------------------------------------------------ lookup
     def which(self, name: str) -> str | None:
+        """Find a program on this host's PATH; a path with a slash must exist and be executable."""
         if os.sep in name:
             return name if os.access(name, os.X_OK) and os.path.isfile(name) else None
         return shutil.which(name, path=self.env.get("PATH", os.defpath))
 
     def flatpak_installed(self, app_id: str) -> bool:
-        """True if a Flatpak app is installed per-user or system-wide."""
+        """Return True if a Flatpak app is installed, for the user or system-wide."""
         dirs = [self.data_home / "flatpak/app", Path(self.env.get("APPBRIDGE_FLATPAK_SYSTEM_DIR", "/var/lib/flatpak/app"))]
         return any((d / app_id / "current").exists() for d in dirs)
 
     @property
     def desktop(self) -> str:
-        """The running desktop, lower-case (kde, gnome, xfce, ...)."""
+        """Return the running desktop, lower-cased (kde, gnome, xfce, ...)."""
         return (self.env.get("XDG_CURRENT_DESKTOP") or self.env.get("DESKTOP_SESSION") or "").split(":")[0].lower()
 
     # ------------------------------------------------------------------ checkout
     def submodule_dir(self, name: str) -> Path | None:
-        """third_party/<name> if it's checked out (has files), else None."""
+        """Return third_party/<name> if it's checked out (has files), else None."""
         if not self.checkout:
             return None
         d = self.checkout / "third_party" / name
         return d if d.is_dir() and any(d.iterdir()) else None
 
     def submodule_repo(self, name: str) -> str:
-        """owner/repo the checkout's .gitmodules points at (your fork, once forked)."""
+        """Return the owner/repo that .gitmodules points at for a submodule (your fork, once forked)."""
         if self.checkout:
             cp = configparser.ConfigParser()
             try:

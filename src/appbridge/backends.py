@@ -15,12 +15,21 @@ from .host import Host
 
 @dataclass
 class Command:
+    """A command appbridge runs, with the environment it needs.
+
+    Attributes:
+        argv: The program and its arguments.
+        env: Variables added to the environment.
+        interactive: True if it asks questions, so the GUI opens it in a terminal.
+        label: What the GUI shows while it runs.
+    """
     argv: list[str]
-    env: dict[str, str] = field(default_factory=dict)   # added to the environment
-    interactive: bool = False   # needs a terminal (asks questions)
+    env: dict[str, str] = field(default_factory=dict)
+    interactive: bool = False
     label: str = ""
 
     def shell(self) -> str:
+        """Return the command as one shell line, for printing (`appbridge launch --dry-run`)."""
         import shlex
         envs = " ".join(f"{k}={shlex.quote(v)}" for k, v in self.env.items())
         return (envs + " " if envs else "") + shlex.join(self.argv)
@@ -28,84 +37,119 @@ class Command:
 
 @dataclass
 class Check:
+    """Whether something is ready (ok), and a line saying why or what's missing (detail)."""
     ok: bool
     detail: str
 
 
 def to_windows_path(p: str) -> str:
-    """A Linux path as a Windows app inside Wine sees it (Wine maps Z: to /)."""
+    """Return a Linux path as a Windows app inside Wine sees it (Wine maps Z: to /)."""
     if p.startswith("/"):
         return "Z:" + p.replace("/", "\\")
     return p
 
 
 class Backend:
+    """One way of running Windows apps: an upstream project such as LinDobe or WinApps.
+
+    A subclass describes how to find the project on this machine and the
+    commands that launch, install and stop an app through it. The catalog lists
+    each app's routes (backend + app-specific target), best first, and
+    core.Bridge picks the first route that's ready.
+
+    Attributes:
+        name: The backend's ID, used in config.json and `--backend`.
+        label: The name shown in the GUI and in menu actions.
+        project: The submodule under third_party/ (and the fork to clone).
+        single_file: The app opens one file per launch.
+        wine_based: The app runs on Wine or Proton, so `appbridge trace` can log it.
+        source_kind: "file" or "dir" if installing needs something downloaded
+            from the vendor (passed with `--from`), else "".
+        source_what: What that download is, for the message when it's missing.
+    """
     name = ""
-    label = ""          # shown in the GUI and the menu actions
-    project = ""        # submodule under third_party/
-    single_file = False  # opens one file per launch
-    wine_based = False   # runs the app on Wine/Proton (so `appbridge trace` can log it)
+    label = ""
+    project = ""
+    single_file = False
+    wine_based = False
 
     def tool(self, host: Host) -> list[str] | None:
+        """Return the command that drives the project (ms365, adobewine, winapps ...), or None if it isn't set up."""
         return None
 
     def ready(self, host: Host) -> Check:
+        """Check whether the backend is set up on this machine; the default asks tool()."""
         t = self.tool(host)
         return Check(True, " ".join(t)) if t else Check(False, self.hint(host))
 
     def ready_app(self, app: App, host: Host) -> Check:
-        """Whether this backend can run this particular app (most backends: same for every app)."""
+        """Check whether this backend can run this particular app; for most backends that's the same for every app."""
         return self.ready(host)
 
     def installed(self, app: App, route: Route, host: Host) -> bool | None:
-        """True/False if we can tell, None if we can't (for example, apps inside a VM)."""
+        """Return whether the app is installed under this backend, or None if it can't tell (apps inside a VM)."""
         return None
 
     def launch(self, app: App, route: Route, files: list[str], host: Host) -> list[Command]:
+        """Return the commands that open the app, with files if given.
+
+        Backends that open one file per launch (single_file) get one command per file.
+        """
         t = self.tool(host) or []
         if self.single_file and len(files) > 1:
             return [Command(t + [self.target(route, host), f]) for f in files]
         return [Command(t + [self.target(route, host), *files])]
 
-    # Some apps install from a file you download from the vendor (Autodesk, Dassault...).
-    source_kind = ""     # "", "file" or "dir": what `appbridge install APP --from` takes
-    source_what = ""     # shown when it's missing
+    source_kind = ""
+    source_what = ""
 
     def install(self, app: App, route: Route, host: Host, source=None) -> list[Command]:
+        """Return the commands that install the app, or [] if appbridge can't.
+
+        Args:
+            source: The vendor's installer file or folder from `--from`, for
+                backends with a source_kind.
+        """
         return []
 
     def can_install(self, app: App, route: Route, host: Host) -> bool:
-        """Whether appbridge can run an installer for it (perhaps given --from FILE)."""
+        """Return True if appbridge can run an installer for the app (perhaps once given --from FILE)."""
         return bool(self.install(app, route, host))
 
     def source_needed(self, app: App, route: Route, host: Host) -> str:
-        """What vendor file the install needs, or "" if none."""
+        """Return what vendor download the install needs, or "" if none."""
         return self.source_what if self.source_kind else ""
 
     def stop(self, app: App, route: Route, host: Host) -> Command | None:
+        """Return the command that closes the app (or its whole prefix or VM session), or None."""
         return None
 
     def run_program(self, app: App, route: Route, program: str, args: list[str], host: Host) -> Command | None:
+        """Return a command that runs another program in the app's Wine prefix, or None if the backend has no prefix."""
         return None
 
     def exe_path(self, app: App, route: Route, host: Host) -> Path | None:
+        """Return the app's installed .exe on this machine, for icons and `appbridge gap`, or None."""
         return None
 
     def icon_file(self, app: App, route: Route, host: Host) -> Path | None:
-        """A ready-made icon file the project ships for this app (svg/png)."""
+        """Return a ready-made icon file (svg or png) the project ships for the app, or None."""
         return None
 
     def icon_name(self, app: App, route: Route, host: Host) -> str | None:
-        """An icon-theme name that the app's own package installs."""
+        """Return an icon-theme name that the app's own package installs, or None."""
         return None
 
     def target(self, route: Route, host: Host) -> str:
+        """Return what tool() should launch for a route; the default is the route's target."""
         return route.target
 
     def hint(self, host: Host) -> str:
+        """Return how to set the backend up, for when ready() fails."""
         return ""
 
     def repo_url(self, host: Host) -> str:
+        """Return the GitHub URL of the project: your fork once third_party/ points at it."""
         return f"https://github.com/{host.submodule_repo(self.project)}" if self.project else ""
 
 
@@ -131,6 +175,12 @@ def _newest(base: Path, pattern: str) -> Path | None:
 # --------------------------------------------------------------------------- Microsoft 365 on Proton
 
 class Ms365(Backend):
+    """Microsoft 365 on Proton, through office365_flake's `ms365` command.
+
+    Uses `ms365` from PATH, else runs the flake with Nix: from the checked-out
+    submodule, or from GitHub. The prefix is $MS365_PREFIX, or under
+    $MS365_HOME (default ~/.local/share/ms365).
+    """
     name, label, project = "ms365", "Wine/Proton (office365_flake)", "office365_flake"
     wine_based = True
 
@@ -144,6 +194,7 @@ class Ms365(Backend):
         return None
 
     def prefix(self, host: Host) -> Path:
+        """Return the Wine prefix Office is installed in."""
         if p := host.env.get("MS365_PREFIX"):
             return Path(p)
         return Path(host.env.get("MS365_HOME") or host.home / ".local/share/ms365") / "prefix"
@@ -183,6 +234,7 @@ class Ms365(Backend):
 # --------------------------------------------------------------------------- Adobe on LinDobe
 
 class LinDobe(Backend):
+    """Adobe Creative Cloud apps on LinDobe's patched Wine, through its `adobewine` command or its Flatpak."""
     name, label, project = "lindobe", "Wine (LinDobe)", "LinDobe"
     wine_based = True
     flatpak_id = "io.github.le_birnes.AdobeWine"
@@ -239,6 +291,7 @@ class LinDobe(Backend):
 # --------------------------------------------------------------------------- Windows VM (WinApps / LinOffice)
 
 class WinApps(Backend):
+    """Apps installed in a Windows VM, shown as RemoteApp windows through WinApps and FreeRDP."""
     name, label, project = "winapps", "Windows VM (WinApps)", "winapps"
     single_file = True
 
@@ -296,6 +349,7 @@ class WinApps(Backend):
 
 
 class LinOffice(Backend):
+    """Office in LinOffice's Windows VM (a WinApps setup aimed at Office), from its Flatpak or the submodule."""
     name, label, project = "linoffice", "Windows VM (LinOffice)", "linoffice"
     flatpak_id = "io.github.eylenburg.LinOffice"
     single_file = True
@@ -334,6 +388,7 @@ _NATIVE_PROJECTS = {"teams-for-linux": "teams-for-linux", "prospect-mail": "pros
 
 
 class Flatpak(Backend):
+    """Apps that ship as Flatpaks (Teams for Linux, Prospect Mail ...); installs from the route's remote."""
     name, label = "flatpak", "Flatpak"
 
     def tool(self, host):
@@ -373,6 +428,7 @@ class Flatpak(Backend):
 
 
 class Native(Backend):
+    """Linux programs on PATH, such as yabridge."""
     name, label = "native", "Linux app"
 
     def ready(self, host):
@@ -401,7 +457,7 @@ class Native(Backend):
 
 
 class Service(Backend):
-    """A sync daemon run as a systemd user service (OneDrive)."""
+    """OneDrive sync, run as the onedrive client's systemd user service."""
     name, label, project = "service", "systemd user service", "onedrive"
 
     def tool(self, host):
@@ -445,6 +501,10 @@ class Service(Backend):
 # --------------------------------------------------------------------------- your own Windows apps on Wine / umu
 
 class Wine(Backend):
+    """Your own Windows apps (`appbridge add`), on plain Wine or on Proton through umu.
+
+    Each app gets its own prefix, by default ~/.local/share/appbridge/prefixes/ID.
+    """
     name, label, project = "wine", "Wine", "umu-launcher"
     wine_based = True
 
@@ -462,6 +522,7 @@ class Wine(Backend):
                                                     (f" (umu-launcher: {self.repo_url(host)})" if r == "umu" else ""))
 
     def prefix(self, app: App, host: Host) -> Path:
+        """Return the app's Wine prefix: its configured prefix, or the default under appbridge's data folder."""
         return host.expand(app.custom.get("prefix") or str(host.data_home / "appbridge/prefixes" / app.id))
 
     def exe_path(self, app, route, host):
@@ -478,6 +539,7 @@ class Wine(Backend):
         return bool(p and p.is_file())
 
     def _cmd(self, app: App, host: Host, program: str, args: list[str]) -> Command:
+        """Build a command that runs program in the app's prefix with its runner (wine, or umu-run with GE-Proton)."""
         env = {"WINEPREFIX": str(self.prefix(app, host)), **app.custom.get("env", {})}
         if self._runner(app) == "umu":
             env.setdefault("GAMEID", "umu-default")
@@ -516,17 +578,29 @@ class Wine(Backend):
 # ~/.local/share/appbridge/projects/NAME on first install and runs its scripts.
 
 class ScriptProject(Backend):
-    requires: tuple[str, ...] = ()    # host programs the project's installer needs
+    """A community project whose scripts install and run one app on Wine.
+
+    On first install appbridge clones the project (your fork, once forked) into
+    ~/.local/share/appbridge/projects/NAME, or uses $APPBRIDGE_<NAME>_SRC, and
+    then runs its installer.
+
+    Attributes:
+        requires: Programs the project's installer needs on this machine.
+    """
+    requires: tuple[str, ...] = ()
     wine_based = True
 
     def route_of(self, app: App) -> Route:
+        """Return the app's route for this backend."""
         return next(r for r in app.routes if r.backend == self.name)
 
     def project_dir(self, host: Host) -> Path:
+        """Return where the project is (or will be) checked out."""
         override = host.env.get(f"APPBRIDGE_{self.name.upper()}_SRC")
         return Path(override) if override else host.data_home / "appbridge/projects" / self.project
 
     def ready(self, host):
+        """Check that the installer's programs are on PATH (and git, if the project isn't cloned yet)."""
         missing = [t for t in self.requires if not host.which(t)]
         d = self.project_dir(host)
         if not (d.is_dir() and any(d.iterdir())) and not host.which("git"):
@@ -536,12 +610,14 @@ class ScriptProject(Backend):
         return Check(True, str(d) if d.is_dir() else f"can install (downloads {self.project} to {d})")
 
     def ready_app(self, app, host):
+        """Treat an installed app as ready even if the installer's build tools are gone."""
         # Once installed, the build tools the installer needed don't matter.
         if self.installed(app, self.route_of(app), host):
             return Check(True, "installed")
         return self.ready(host)
 
     def fetch(self, host: Host) -> list[Command]:
+        """Return the git clone command for the project, or [] if it's already there."""
         d = self.project_dir(host)
         if d.is_dir() and any(d.iterdir()):
             return []
@@ -549,9 +625,11 @@ class ScriptProject(Backend):
                         label=f"Download {self.project}")]
 
     def install_steps(self, app: App, route: Route, host: Host, source) -> list[Command]:
+        """Return the project's own install commands; subclasses override this."""
         return []
 
     def install(self, app, route, host, source=None):
+        """Return the clone and install commands, or [] while a needed `--from` source is missing."""
         if self.source_kind and not source:
             return []
         return self.fetch(host) + self.install_steps(app, route, host, source)
@@ -565,6 +643,7 @@ class ScriptProject(Backend):
 
 
 class AutoCAD(ScriptProject):
+    """AutoCAD 2027 on Wine through AutoCAD-2027-Wine; installs from Autodesk's installer .exe (`--from`)."""
     name, label, project = "autocad", "Wine (AutoCAD-2027-Wine)", "AutoCAD-2027-Wine"
     requires = ("wine", "winetricks", "gcc", "python3", "bsdtar")
     source_kind = "file"
@@ -593,6 +672,7 @@ class AutoCAD(ScriptProject):
 
 
 class Inventor(ScriptProject):
+    """Inventor 2026/2027 on a patched Wine through Autodesk-Inventor-for-Linux; installs from Autodesk's download folder."""
     name, label, project = "inventor", "Wine (Autodesk-Inventor-for-Linux)", "Autodesk-Inventor-for-Linux"
     requires = ("python3", "curl")
     source_kind = "dir"
@@ -628,6 +708,7 @@ class Inventor(ScriptProject):
 
 
 class Fusion(ScriptProject):
+    """Fusion on Wine through cryinkfly's installer, which downloads Fusion itself."""
     name, label, project = "fusion", "Wine (Autodesk-Fusion-360-for-Linux)", "Autodesk-Fusion-360-for-Linux"
     requires = ("curl",)
 
@@ -659,6 +740,7 @@ class Fusion(ScriptProject):
 
 
 class SolidWorks(ScriptProject):
+    """SOLIDWORKS 2026 on solidworks-wine's patched Wine (experimental); installs from the vendor's media folder."""
     name, label, project = "solidworks", "Wine (solidworks-wine)", "solidworks-wine"
     requires = ("python3", "gcc", "make", "winetricks")
     source_kind = "dir"
@@ -701,6 +783,7 @@ class SolidWorks(ScriptProject):
 
 
 class Affinity(ScriptProject):
+    """Affinity Photo, Designer and Publisher on ElementalWarrior's Wine, through AffinityOnLinux."""
     name, label, project = "affinity", "Wine (AffinityOnLinux)", "Linux-Affinity-Installer"
     requires = ("python3",)
 
@@ -738,6 +821,7 @@ class Affinity(ScriptProject):
 
 
 class ClipStudio(ScriptProject):
+    """Clip Studio Paint on GE-Proton through csp-linux."""
     name, label, project = "csp", "Proton (csp-linux)", "csp-linux"
     requires = ("wget", "pv")
 
@@ -769,6 +853,7 @@ class ClipStudio(ScriptProject):
 
 
 class Ableton(ScriptProject):
+    """Ableton Live on a patched Wine through ableton-linux's .run installer (`--from`)."""
     name, label, project = "ableton", "Wine (ableton-linux)", "ableton-linux"
     requires = ("sh",)
     source_kind = "file"
@@ -795,7 +880,7 @@ class Ableton(ScriptProject):
 
 
 class Bottles(Backend):
-    """Apps you set up yourself in Bottles (usebottles.com), found by their .exe."""
+    """Apps you set up yourself in Bottles, found by their .exe in a bottle and run with bottles-cli."""
     wine_based = True
     name, label, project = "bottles", "Bottles", "Bottles"
     flatpak_id = "com.usebottles.bottles"
@@ -818,7 +903,7 @@ class Bottles(Backend):
         return out
 
     def find(self, route: Route, host: Host) -> tuple[str, Path] | None:
-        """(bottle name, exe) for the first bottle that has the app installed."""
+        """Return (bottle name, exe path) for the first bottle that has the app installed, or None."""
         for d in self._bottle_dirs(host):
             try:
                 hits = sorted(p for p in (d / "drive_c").glob(route.target) if p.is_file())
@@ -857,7 +942,7 @@ class Bottles(Backend):
 
 
 def _desktop_exec(path: Path) -> list[str] | None:
-    """The Exec= command of a .desktop file as argv, without %f-style field codes."""
+    """Return the Exec= command of a .desktop file as argv, without %f-style field codes."""
     try:
         lines = path.read_text(errors="replace").splitlines()
     except OSError:

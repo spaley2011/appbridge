@@ -34,12 +34,13 @@ EXIT_NOT_READY = 3
 
 
 def _err(msg: str, code: int = 1) -> int:
+    """Print an error to stderr and return code."""
     print(f"appbridge: {msg}", file=sys.stderr)
     return code
 
 
 def _notify(host: Host, title: str, body: str) -> None:
-    """Started from a menu there's no terminal, so say what went wrong in a notification."""
+    """Show an error as a desktop notification when there's no terminal (appbridge was started from a menu)."""
     if sys.stderr.isatty():
         return
     if ns := host.which("notify-send"):
@@ -47,6 +48,7 @@ def _notify(host: Host, title: str, body: str) -> None:
 
 
 def _state_json(res: Resolved) -> dict:
+    """Return an app's resolved state as a JSON-ready dict, for --json."""
     return {
         "id": res.app.id, "name": res.app.name, "suite": res.app.suite, "status": res.status,
         "backend": res.backend.name if res.backend else None, "summary": res.summary,
@@ -59,6 +61,7 @@ def _state_json(res: Resolved) -> dict:
 # --------------------------------------------------------------------------- commands
 
 def cmd_list(b: Bridge, a) -> int:
+    """List the apps, their status and how each would run."""
     rows = []
     for app in b.apps:
         if a.suite and app.suite.lower() != a.suite.lower():
@@ -85,6 +88,7 @@ def cmd_list(b: Bridge, a) -> int:
 
 
 def cmd_info(b: Bridge, a) -> int:
+    """Show every route for an app, best first, and what each one is missing."""
     app = b.app(a.app)
     res = b.resolve(app)
     if a.json:
@@ -121,7 +125,7 @@ def cmd_info(b: Bridge, a) -> int:
 
 
 def _run_all(b: Bridge, cmds: list[Command], wait_last: bool) -> int:
-    """Run commands one after another; stop at the first failure."""
+    """Run commands one after another and stop at the first failure; return its exit status."""
     for c in cmds:
         if c.label:
             print(f"==> {c.label}")
@@ -135,6 +139,15 @@ def _run_all(b: Bridge, cmds: list[Command], wait_last: bool) -> int:
 
 
 def cmd_launch(b: Bridge, a) -> int:
+    """Open an app, with files if given.
+
+    The last command replaces this process (exec), so the app's window belongs
+    to the launcher the menu started; earlier commands are spawned in the
+    background. With --detach the last one is spawned too.
+
+    Returns EXIT_NOT_READY (3) if the app can't run yet, after saying what's
+    missing (as a desktop notification too, when there's no terminal).
+    """
     app = b.app(a.app)
     try:
         res = b.resolve(app, a.backend)
@@ -170,6 +183,7 @@ def cmd_launch(b: Bridge, a) -> int:
 
 
 def cmd_stop(b: Bridge, a) -> int:
+    """Close an app, or stop a sync service, with its backend's stop command."""
     app = b.app(a.app)
     res = b.resolve(app)
     c = b.stop_command(res)
@@ -179,6 +193,11 @@ def cmd_stop(b: Bridge, a) -> int:
 
 
 def cmd_install(b: Bridge, a) -> int:
+    """Install or repair an app through its route, after showing the commands and asking.
+
+    Returns EXIT_NOT_READY (3) when nothing is set up to run the app, or when it
+    needs a vendor download that --from didn't give.
+    """
     app = b.app(a.app)
     try:
         res = b.resolve(app, a.backend)
@@ -214,6 +233,7 @@ def cmd_install(b: Bridge, a) -> int:
 
 
 def cmd_run(b: Bridge, a) -> int:
+    """Run another program (an installer, regedit ...) in an app's Wine prefix."""
     app = b.app(a.app)
     res = b.resolve(app)
     c = res.backend.run_program(app, res.state.route, a.program, a.args, b.host) if res.state and res.state.check.ok else None
@@ -224,6 +244,7 @@ def cmd_run(b: Bridge, a) -> int:
 
 
 def cmd_prefer(b: Bridge, a) -> int:
+    """Save which backend an app should use, or forget it with 'auto'."""
     app = b.app(a.app)
     if a.backend == "auto":
         b.config.prefer.pop(app.id, None)
@@ -238,6 +259,7 @@ def cmd_prefer(b: Bridge, a) -> int:
 
 
 def cmd_integrate(b: Bridge, a) -> int:
+    """Add apps to the desktop's menu (or remove them with --remove)."""
     integ = Integrator(b, dry_run=a.dry_run)
     try:
         if a.remove:
@@ -264,6 +286,7 @@ def cmd_integrate(b: Bridge, a) -> int:
 
 
 def cmd_add(b: Bridge, a) -> int:
+    """Add one of your own Windows apps."""
     env = {}
     for kv in a.env or []:
         k, sep, v = kv.partition("=")
@@ -282,6 +305,7 @@ def cmd_add(b: Bridge, a) -> int:
 
 
 def cmd_remove(b: Bridge, a) -> int:
+    """Remove one of your own Windows apps."""
     b.remove_custom(a.id)
     Integrator(b).remove([a.id])
     print(f"removed {a.id} (its Wine prefix was left in place)")
@@ -289,7 +313,7 @@ def cmd_remove(b: Bridge, a) -> int:
 
 
 def doctor_lines(b: Bridge) -> list[tuple[bool | None, str, str]]:
-    """(ok, item, detail) rows; ok=None for information."""
+    """Return the system check as (ok, item, detail) rows; ok is None for information only."""
     h = b.host
     rows: list[tuple[bool | None, str, str]] = []
     rows.append((None, "desktop", f"{h.desktop or 'unknown'} ({h.env.get('XDG_SESSION_TYPE', '?')})"))
@@ -322,6 +346,7 @@ def doctor_lines(b: Bridge) -> list[tuple[bool | None, str, str]]:
 
 
 def cmd_doctor(b: Bridge, a) -> int:
+    """Print the system check: which tools and backends are installed."""
     sym = {True: "ok ", False: "-- ", None: "   "}
     for ok, item, detail in doctor_lines(b):
         print(f"{sym[ok]} {item:<26} {detail}")
@@ -331,6 +356,7 @@ def cmd_doctor(b: Bridge, a) -> int:
 
 
 def cmd_gap(b: Bridge, a) -> int:
+    """Run debpak's winegap scan on the app's installed folder."""
     app = b.app(a.app)
     res = b.resolve(app)
     exe = res.backend.exe_path(app, res.state.route, b.host) if res.state else None
@@ -401,6 +427,7 @@ def cmd_trace(b: Bridge, a) -> int:
 
 
 def cmd_gui(b: Bridge, a) -> int:
+    """Open the AppBridge window, or only its tray icon with --tray."""
     from .gui import main as gui_main
     return gui_main(["--tray"] if a.tray else [])
 
@@ -408,6 +435,7 @@ def cmd_gui(b: Bridge, a) -> int:
 # --------------------------------------------------------------------------- argparse
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for every appbridge subcommand."""
     ap = argparse.ArgumentParser(prog="appbridge", description=__doc__.split("\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version=f"appbridge {__version__}")
@@ -510,6 +538,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, host: Host | None = None) -> int:
+    """Run the appbridge command line and return the exit status.
+
+    For `trace`, everything after `--` goes to winegap untouched, because
+    argparse would otherwise read winegap's options as appbridge's.
+    """
     argv = list(sys.argv[1:] if argv is None else argv)
     passthrough: list[str] = []
     if argv[:1] == ["trace"] and "--" in argv:
