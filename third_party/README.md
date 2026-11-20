@@ -5,7 +5,7 @@ commit that was tested with it. None of their code is copied into appbridge's
 own (MIT) code, and each project keeps its own license.
 
 ```sh
-git submodule update --init --depth 1 third_party/office365_flake   # just the ones you need
+git submodule update --init --depth 1 third_party/office365_flake   # only the ones you need
 git submodule update --init --depth 1                               # or all of them (wine-adobe-installers is a full Wine tree)
 scripts/fork-upstreams.sh                                           # fork them all into your GitHub account and repoint
 scripts/fork-upstreams.sh --sync                                    # later: pull upstream changes into your forks

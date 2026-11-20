@@ -5,10 +5,10 @@ work apps on Linux, as a command line tool (`appbridge`) and a Qt window with a
 tray menu (`appbridge-gui`). Apps it can run show up in your desktop's app menu,
 KRunner and "Open With", like native apps.
 
-Running Office or Photoshop on Linux takes a different project for each app,
-each with its own commands, prefixes and shortcuts. `appbridge` is one
-launcher for all of them. It knows several ways to run each app, checks
-which ones are set up on your machine, and uses the best one that works:
+Without it, running Office or Photoshop on Linux means a different project for
+each app, each with its own commands, prefixes and shortcuts. appbridge knows
+several ways to run each app, checks which ones are set up on your machine, and
+uses the best one that works:
 
 | Apps | Ways to run them, best first |
 |---|---|
@@ -21,13 +21,14 @@ which ones are set up on your machine, and uses the best one that works:
 | Visio, Project, Power BI, SQL Server Management Studio, Visual Studio, full Windows desktop | WinApps (Wine can't run these) |
 | Your company's own Windows tools | Wine or Proton (umu-launcher), in a prefix per app: `appbridge add` |
 
-CAD, design and audio apps go through Wine on purpose: they need the GPU or
-low-latency audio, which a Windows VM handles badly (no real 3D acceleration,
-audio over RDP). Their projects are younger, so check each app's note
-(`appbridge info APP`); SOLIDWORKS in particular is experimental.
+CAD, design and audio apps go through Wine on purpose. They need the GPU or
+low-latency audio, and a Windows VM has no real 3D acceleration and sends audio
+over RDP. Several of their projects are new (the AutoCAD, Inventor and
+SOLIDWORKS ones target the 2026 and 2027 releases), so read each app's note
+with `appbridge info APP`. SOLIDWORKS is experimental.
 
-appbridge doesn't install or crack anything itself: you bring your own
-subscriptions and licenses, and the upstream project does the installing.
+You bring your own subscriptions and licenses. appbridge cracks nothing, and
+the upstream project for each app does the installing.
 
 ## Install
 
@@ -38,13 +39,13 @@ pip install --user .            # appbridge and appbridge-gui; no dependencies
 appbridge doctor                # what's set up on this machine
 ```
 
-The projects under `third_party/` are only needed if you want to build or run
-one from source, so check out just those:
+You only need the projects under `third_party/` to build or run one from
+source, so check out the ones you want:
 `git submodule update --init --depth 1 third_party/office365_flake`.
 
 For the window, install Qt for Python from your distribution
 (`python3-pyside6`, `pyside6` or `python3-pyqt6`), or `pip install --user '.[gui]'`.
-Requires Python 3.10+.
+appbridge needs Python 3.10 or newer.
 
 ## Command line
 
@@ -72,7 +73,7 @@ appbridge run expenses regedit       # any program in that prefix
 # which Windows functions is Wine missing for an installed app? (needs debpak's winegap)
 appbridge gap photoshop --index ~/.cache/debpak/wine/11.8_x86_64.json
 
-# what actually goes wrong when it runs: launches it with Wine's debug logging for
+# what goes wrong when it runs: launches it with Wine's debug logging for
 # 3 minutes (use the features you care about), closes it, and reports unimplemented
 # calls, stubs, missing DLLs and COM objects, and crashes (needs debpak)
 appbridge trace word ~/report.docx
@@ -80,20 +81,21 @@ appbridge trace photoshop --timeout 600 -- --index ~/.cache/debpak/wine/11.8_x86
 ```
 
 Apps that install from a vendor download (AutoCAD, Inventor, SOLIDWORKS,
-Ableton's `.run`) take it with `--from`; `appbridge install APP` without it says
-what to download. The CAD, design and audio projects are cloned from your forks
-into `~/.local/share/appbridge/projects/` on first install.
+Ableton's `.run`) take the file with `--from`; without it, `appbridge install
+APP` tells you what to download. On first install, appbridge clones the CAD,
+design or audio project from your fork into `~/.local/share/appbridge/projects/`.
 
-`launch` exits with status 3 and says what's missing when an app isn't ready.
-When it was started from the app menu, it shows that as a desktop notification.
+If an app isn't ready, `launch` says what's missing and exits with status 3. If
+you started the app from the menu, that message appears as a desktop
+notification.
 
 ## Window and tray
 
-`appbridge-gui` (or `appbridge gui`) lists the apps by suite with search and
-their status. For the selected app you can open it or a file, install or
+`appbridge-gui` (or `appbridge gui`) lists the apps by suite, with their status
+and a search box. For the selected app you can open it or a file, install or
 repair it, stop it, choose how it runs, add it to the app menu, or make it the
-default for its file types. You can also drop files onto an app in the list to
-open them there. Steps that ask questions, such as WinApps setup or the
+default for its file types. Drop files onto an app in the list to open them
+there. Steps that ask questions, such as WinApps setup or the
 OneDrive sign-in, open in Konsole (or your desktop's terminal). The tray menu
 launches any ready app. `appbridge-gui --tray` starts the tray only, so you can
 put it in Autostart.
@@ -123,8 +125,8 @@ Cinnamon and others read these:
 - Afterwards it runs `kbuildsycoca6` (or 5) so Plasma sees the change right
   away, plus `update-desktop-database` and `xdg-desktop-menu forceupdate`.
 
-Apps that install their own entry (Teams, Prospect Mail and other Flatpak or
-native packages) are skipped. So are apps that already have an entry with the
+appbridge skips apps that install their own entry (Teams, Prospect Mail and
+other Flatpak or native packages), and apps that already have an entry with the
 same name, for example from `adobewine launchers` or the flake's `shortcuts`.
 Pass `--force` to add an appbridge entry anyway.
 
@@ -161,11 +163,11 @@ the checked-out submodule when it's present.
   LinOffice, which run real Windows), and only sees what the traced run did. A
   launcher that writes Wine's output to its own log file instead of the
   terminal leaves the trace empty; read that file with `winegap trace --log`.
-- Whether an app is installed inside a Windows VM is known only after WinApps
-  setup has scanned the VM. Until then appbridge assumes it is.
-- So far the Qt window has only been tested against a stand-in for Qt. Run
-  `tests/test_appbridge_gui.py` with PySide6 or PyQt6 installed to test it for
-  real (offscreen).
+- appbridge can't tell which apps a Windows VM has until WinApps setup has
+  scanned it, and until then it assumes the app is there.
+- The window's tests have only run against a stand-in for Qt so far. With
+  PySide6 or PyQt6 installed, `tests/test_appbridge_gui.py` drives the real
+  window offscreen.
 
 ## Development
 
